@@ -1,5 +1,5 @@
 import asyncio
-from typing import Tuple, Any
+from typing import Tuple, Any, Dict
 
 from app.data import (
     RESPParser,
@@ -20,6 +20,8 @@ class RedisServer:
         self.port = port
         self.resp_parser = RESPParser()
 
+        self.__data_dict: Dict = {}
+
     def handle_command(self, data: RESPObject) -> RESPObject:
         if not isinstance(data, RESPArray):
             return RESPSimpleString("ERR unknown command")
@@ -30,6 +32,17 @@ class RedisServer:
                 return RESPSimpleString("PONG")
             case RedisCommand.ECHO:
                 return RESPBulkString(data.value[1].value)
+            case RedisCommand.SET:
+                key = data.value[1].value
+                value = data.value[2].value
+                self.__data_dict[key] = value
+                return RESPSimpleString("OK")
+            case RedisCommand.GET:
+                key = data.value[1].value
+                value = self.__data_dict.get(key)
+                if value:
+                    return RESPBulkString(value)
+                return RESPBulkString(None)
             case _:
                 return RESPSimpleString("ERR unknown command")
 
