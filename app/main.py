@@ -1,18 +1,24 @@
-import os
 import socket  # noqa: F401
-def main():
-    if os.name == "posix":
-        server_socket = socket.create_server(("localhost", 6379), reuse_port=True)
-    else:
-        server_socket = socket.create_server(("localhost", 6379), reuse_port=False)
-    conn, addr = server_socket.accept()  # wait for client
+import asyncio  # noqa: F401
 
-    while True:
-        try:
-            msg = conn.recv(1024)
-            conn.sendall(b"+PONG\r\n")
-        except ConnectionAbortedError:
-            break
+
+async def handle_client(reader, writer):
+    try:
+        while True:
+            data = await reader.read(1024)
+            if not data:
+                break  # connection lost
+            writer.write(b"+PONG\r\n")
+            await writer.drain()
+    finally:
+        writer.close()
+        await writer.wait_closed()
+
+
+async def main():
+    server = await asyncio.start_server(handle_client, "localhost", "6379")
+    await server.serve_forever()
+
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())
