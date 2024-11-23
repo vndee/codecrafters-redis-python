@@ -26,6 +26,8 @@ class RedisServer:
 
         command = data.value[0].value
         match command:
+            case RedisCommand.PING:
+                return RESPSimpleString("PONG")
             case RedisCommand.ECHO:
                 return RESPBulkString(data.value[1].value)
             case _:
