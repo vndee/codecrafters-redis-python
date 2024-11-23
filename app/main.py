@@ -1,10 +1,35 @@
 import asyncio
+from typing import Tuple, Any
+
+from app.data import (
+    RESPParser,
+    RESPObjectType,
+    RESPObject,
+    RESPProtocolVersion,
+    RESPSimpleString,
+    RESPInteger,
+    RESPBulkString,
+    RESPArray,
+    RedisCommand
+)
 
 
 class RedisServer:
     def __init__(self, host='127.0.0.1', port=6379):
         self.host = host
         self.port = port
+        self.resp_parser = RESPParser()
+
+    def handle_command(self, data: RESPObject) -> RESPObject:
+        if not isinstance(data, RESPArray):
+            return RESPSimpleString("ERR unknown command")
+
+        command = data.value[0].value
+        match command:
+            case RedisCommand.ECHO:
+                return RESPBulkString(data.value[1].value)
+            case _:
+                return RESPSimpleString("ERR unknown command")
 
     async def handle_client(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
         addr = writer.get_extra_info('peername')
@@ -12,13 +37,20 @@ class RedisServer:
 
         try:
             while True:
-                # Wait for data
                 data = await reader.read(1024)
                 if not data:
                     break
 
-                # Always respond with +PONG\r\n regardless of input
-                response = b"+PONG\r\n"
+                data = self.resp_parser.parse(data)
+                print(f"Received {data} from {addr}")
+
+                if isinstance(data, RESPSimpleString) and data.value == "PING":
+                    response = b"+PONG\r\n"
+                elif data.type == RESPObjectType.ARRAY:
+                    response = self.handle_command(data).serialize()
+                else:
+                    response = b"-ERR unknown command\r\n"
+
                 writer.write(response)
                 await writer.drain()
 
