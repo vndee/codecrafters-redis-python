@@ -1,7 +1,8 @@
+import time
 import asyncio
-from typing import Tuple, Any, Dict
+from typing import Tuple, Any, Dict, List
 
-from app.data import (
+from app.resp import (
     RESPParser,
     RESPObjectType,
     RESPObject,
@@ -10,8 +11,8 @@ from app.data import (
     RESPInteger,
     RESPBulkString,
     RESPArray,
-    RedisCommand
 )
+from app.data import RedisCommand, RedisDataObject, RedisDataStore
 
 
 class RedisServer:
@@ -20,29 +21,42 @@ class RedisServer:
         self.port = port
         self.resp_parser = RESPParser()
 
-        self.__data_dict: Dict = {}
+        self.__data_store = RedisDataStore()
 
     def handle_command(self, data: RESPObject) -> RESPObject:
         if not isinstance(data, RESPArray):
             return RESPSimpleString("ERR unknown command")
 
-        command = data.value[0].value
+        command = data.value[0].value.lower()
         match command:
             case RedisCommand.PING:
                 return RESPSimpleString("PONG")
+
             case RedisCommand.ECHO:
                 return RESPBulkString(data.value[1].value)
+
             case RedisCommand.SET:
                 key = data.value[1].value
                 value = data.value[2].value
-                self.__data_dict[key] = value
-                return RESPSimpleString("OK")
+
+                i = 3
+                args: Dict[str, Any] = {}
+                while i < len(data.value):
+                    arg_name = data.value[i].value.lower()
+                    if arg_name in ("ex", "px", "exat", "pxat"):
+                        args[arg_name] = int(data.value[i + 1].value)
+                        i = i + 2
+                    elif arg_name in ("nx", "xx", "keepttl", "get"):
+                        args[arg_name] = True
+                        i = i + 1
+                    else:
+                        return RESPSimpleString("ERR syntax error")
+
+                return RESPSimpleString(self.__data_store.set(key, value, **args))
+
             case RedisCommand.GET:
                 key = data.value[1].value
-                value = self.__data_dict.get(key)
-                if value:
-                    return RESPBulkString(value)
-                return RESPBulkString(None)
+                return RESPBulkString(self.__data_store.get(key))
             case _:
                 return RESPSimpleString("ERR unknown command")
 

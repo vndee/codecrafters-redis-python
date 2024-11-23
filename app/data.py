@@ -1,241 +1,293 @@
+import time
 from enum import StrEnum
 from dataclasses import dataclass
-from typing import Optional, Any, List, Dict, Union
-from abc import ABC, abstractmethod
-
-
-# Your existing enums
-class RESPObjectTypeCategory(StrEnum):
-    SIMPLE = "simple"
-    AGGREGATE = "aggregate"
-
-
-class RESPProtocolVersion(StrEnum):
-    RESP2 = "RESP2"
-    RESP3 = "RESP3"
-
-
-class RESPObjectType(StrEnum):
-    SIMPLE_STRING = "+"
-    SIMPLE_ERROR = "-"
-    INTEGER = ":"
-    BULK_STRING = "$"
-    ARRAY = "*"
-    NULL = "_"
-    BOOLEAN = "#"
-    DOUBLE = ","
-    BIG_NUMBER = "("
-    BULK_ERROR = "!"
-    VERBATIM_STRING = "="
-    MAP = "%"
-    ATTRIBUTE = "`"
-    SET = "~"
-    PUSH = ">"
-
-
-@dataclass
-class RESPObject(ABC):
-    type: RESPObjectType
-    value: Optional[Any]
-
-    @property
-    def minimal_protocol_version(self) -> RESPProtocolVersion:
-        if self.type in {
-            RESPObjectType.SIMPLE_STRING,
-            RESPObjectType.SIMPLE_ERROR,
-            RESPObjectType.INTEGER,
-            RESPObjectType.BULK_STRING,
-            RESPObjectType.ARRAY,
-        }:
-            return RESPProtocolVersion.RESP2
-        return RESPProtocolVersion.RESP3
-
-    @property
-    def category(self) -> RESPObjectTypeCategory:
-        if self.type in {
-            RESPObjectType.SIMPLE_STRING,
-            RESPObjectType.SIMPLE_ERROR,
-            RESPObjectType.INTEGER,
-            RESPObjectType.NULL,
-            RESPObjectType.BOOLEAN,
-            RESPObjectType.DOUBLE,
-            RESPObjectType.BIG_NUMBER
-        }:
-            return RESPObjectTypeCategory.SIMPLE
-        return RESPObjectTypeCategory.AGGREGATE
-
-    @abstractmethod
-    def serialize(self) -> bytes:
-        """Convert the object to RESP wire format"""
-        pass
-
-
-@dataclass
-class RESPSimpleString(RESPObject):
-    value: str
-
-    def __init__(self, value: str):
-        super().__init__(type=RESPObjectType.SIMPLE_STRING, value=value)
-
-    def serialize(self) -> bytes:
-        return f"+{self.value}\r\n".encode()
-
-
-@dataclass
-class RESPError(RESPObject):
-    value: str
-
-    def __init__(self, value: str):
-        super().__init__(type=RESPObjectType.SIMPLE_ERROR, value=value)
-
-    def serialize(self) -> bytes:
-        return f"-{self.value}\r\n".encode()
-
-
-@dataclass
-class RESPInteger(RESPObject):
-    value: int
-
-    def __init__(self, value: int):
-        super().__init__(type=RESPObjectType.INTEGER, value=value)
-
-    def serialize(self) -> bytes:
-        return f":{self.value}\r\n".encode()
-
-
-@dataclass
-class RESPBulkString(RESPObject):
-    value: Optional[str]
-
-    def __init__(self, value: Optional[str]):
-        super().__init__(type=RESPObjectType.BULK_STRING, value=value)
-
-    def serialize(self) -> bytes:
-        if self.value is None:
-            return b"$-1\r\n"
-        return f"${len(self.value)}\r\n{self.value}\r\n".encode()
-
-
-@dataclass
-class RESPArray(RESPObject):
-    value: List[RESPObject]
-
-    def __init__(self, value: List[RESPObject]):
-        super().__init__(type=RESPObjectType.ARRAY, value=value)
-
-    def serialize(self) -> bytes:
-        if not self.value:
-            return b"*0\r\n"
-        parts = [f"*{len(self.value)}\r\n".encode()]
-        for item in self.value:
-            parts.append(item.serialize())
-        return b"".join(parts)
-
-
-class RESPParser:
-    def __init__(self, protocol_version: RESPProtocolVersion = RESPProtocolVersion.RESP2):
-        self.protocol_version = protocol_version
-
-    def parse(self, data: bytes) -> Optional[RESPObject]:
-        if not data:
-            return None
-
-        try:
-            type_byte = data[0:1].decode()
-            resp_type = RESPObjectType(type_byte)
-
-            lines = data.split(b'\r\n')
-
-            if resp_type == RESPObjectType.SIMPLE_STRING:
-                return RESPSimpleString(lines[0][1:].decode())
-
-            elif resp_type == RESPObjectType.SIMPLE_ERROR:
-                return RESPError(lines[0][1:].decode())
-
-            elif resp_type == RESPObjectType.INTEGER:
-                return RESPInteger(int(lines[0][1:]))
-
-            elif resp_type == RESPObjectType.BULK_STRING:
-                length = int(lines[0][1:])
-                if length == -1:
-                    return RESPBulkString(None)
-                return RESPBulkString(lines[1].decode())
-
-            elif resp_type == RESPObjectType.ARRAY:
-                length = int(lines[0][1:])
-                if length == 0:
-                    return RESPArray([])
-
-                elements = []
-                current_data = b'\r\n'.join(lines[1:])
-                for _ in range(length):
-                    element = self.parse(current_data)
-                    if element:
-                        elements.append(element)
-                        current_data = current_data[len(element.serialize()):]
-                return RESPArray(elements)
-
-        except (ValueError, IndexError) as e:
-            raise ValueError(f"Invalid RESP data: {str(e)}")
-
-        return None
+from typing import Dict, Any, Optional, List, Set, Union
 
 
 class RedisCommand(StrEnum):
-    PING = "PING"
-    ECHO = "ECHO"
-    SET = "SET"
-    GET = "GET"
-    INCR = "INCR"
-    DECR = "DECR"
-    EXISTS = "EXISTS"
-    DEL = "DEL"
-    KEYS = "KEYS"
-    FLUSHALL = "FLUSHALL"
-    FLUSHDB = "FLUSHDB"
-    TYPE = "TYPE"
-    EXPIRE = "EXPIRE"
-    TTL = "TTL"
-    PERSIST = "PERSIST"
-    RENAME = "RENAME"
-    RENAMENX = "RENAMENX"
-    RANDOMKEY = "RANDOMKEY"
-    DBSIZE = "DBSIZE"
-    SELECT = "SELECT"
-    MOVE = "MOVE"
-    PEXPIRE = "PEXPIRE"
-    PTTL = "PTTL"
-    EXPIREAT = "EXPIREAT"
-    PEXPIREAT = "PEXPIREAT"
-    SCAN = "SCAN"
-    MGET = "MGET"
-    MSET = "MSET"
-    MSETNX = "MSETNX"
-    SETNX = "SETNX"
-    SETEX = "SETEX"
-    APPEND = "APPEND"
-    GETSET = "GETSET"
-    STRLEN = "STRLEN"
-    INCRBY = "INCRBY"
-    DECRBY = "DECRBY"
-    INCRBYFLOAT = "INCRBYFLOAT"
-    HSET = "HSET"
-    HGET = "HGET"
-    HGETALL = "HGETALL"
-    HDEL = "HDEL"
-    HEXISTS = "HEXISTS"
-    HLEN = "HLEN"
-    HMGET = "HMGET"
-    HMSET = "HMSET"
-    HINCRBY = "HINCRBY"
-    HINCRBYFLOAT = "HINCRBYFLOAT"
-    HKEYS = "HKEYS"
-    HVALS = "HVALS"
-    HSTRLEN = "HSTRLEN"
-    LINDEX = "LINDEX"
-    LINSERT = "LINSERT"
-    LLEN = "LLEN"
-    LPOP = "LPOP"
-    LPUSH = "LPUSH"
-    LPUSHX = "LPUSHX"
-    LRANGE = "LRANGE"
+    PING = "ping"
+    ECHO = "echo"
+    SET = "set"
+    GET = "get"
+    INCR = "incr"
+    DECR = "decr"
+    EXISTS = "exists"
+    DEL = "del"
+    KEYS = "keys"
+    FLUSHALL = "flushall"
+    FLUSHDB = "flushdb"
+    TYPE = "type"
+    EXPIRE = "expire"
+    TTL = "ttl"
+    PERSIST = "persist"
+    RENAME = "rename"
+    RENAMENX = "renamenx"
+    RANDOMKEY = "randomkey"
+    DBSIZE = "dbsize"
+    SELECT = "select"
+    MOVE = "move"
+    PEXPIRE = "pexpire"
+    PTTL = "pttl"
+    EXPIREAT = "expireat"
+    PEXPIREAT = "pexpireat"
+    SCAN = "scan"
+    MGET = "mget"
+    MSET = "mset"
+    MSETNX = "msetnx"
+    SETNX = "setnx"
+    SETEX = "setex"
+    APPEND = "append"
+    GETSET = "getset"
+    STRLEN = "strlen"
+    INCRBY = "incrby"
+    DECRBY = "decrby"
+    INCRBYFLOAT = "incrbyfloat"
+    HSET = "hset"
+    HGET = "hget"
+    HGETALL = "hgetall"
+    HDEL = "hdel"
+    HEXISTS = "hexists"
+    HLEN = "hlen"
+    HMGET = "hmget"
+    HMSET = "hmset"
+    HINCRBY = "hincrby"
+    HINCRBYFLOAT = "hincrbyfloat"
+    HKEYS = "hkeys"
+    HVALS = "hvals"
+    HSTRLEN = "hstrlen"
+    LINDEX = "lindex"
+    LINSERT = "linsert"
+    LLEN = "llen"
+    LPOP = "lpop"
+    LPUSH = "lpush"
+    LPUSHX = "lpushx"
+    LRANGE = "lrange"
+
+
+class RedisDataType(StrEnum):
+    STRING = "string"
+    LIST = "list"
+    SET = "set"
+    ZSET = "zset"
+    HASH = "hash"
+    STREAM = "stream"
+    NONE = "none"
+
+
+RedisString = str
+RedisList = List[str]
+RedisSet = Set[str]
+RedisZSet = Dict[str, float]
+RedisHash = Dict[str, str]
+RedisNone = None
+
+
+@dataclass
+class RedisMetaData:
+    created_at: float
+    updated_at: float
+    expire_at: Optional[int] = None
+    access_count: int = 0
+
+    def is_expired(self):
+        if self.expire_at is None:
+            return False
+        return time.time() * 1000 >= self.expire_at
+
+    def update_access_count(self):
+        self.access_count += 1
+        self.updated_at = time.time() * 1000
+
+
+@dataclass
+class RedisDataObject:
+    """
+    Represents a Redis data object that can hold different types of values
+    with associated metadata
+    """
+    data_type: RedisDataType
+    metadata: RedisMetaData
+    value: Union[RedisString, RedisList, RedisSet, RedisZSet, RedisHash, None]
+
+    @classmethod
+    def create_string(cls, value: RedisString, expire_at: Optional[int] = None) -> "RedisDataObject":
+        return cls(
+            data_type=RedisDataType.STRING,
+            metadata=RedisMetaData(
+                created_at=time.time() * 1000,
+                updated_at=time.time() * 1000,
+                expire_at=expire_at,
+            ),
+            value=value,
+        )
+
+    @classmethod
+    def create_list(cls, value: RedisList, expire_at: Optional[int] = None) -> "RedisDataObject":
+        return cls(
+            data_type=RedisDataType.LIST,
+            metadata=RedisMetaData(
+                created_at=time.time() * 1000,
+                updated_at=time.time() * 1000,
+                expire_at=expire_at,
+            ),
+            value=value,
+        )
+
+    @classmethod
+    def create_set(cls, value: RedisSet, expire_at: Optional[int] = None) -> "RedisDataObject":
+        return cls(
+            data_type=RedisDataType.SET,
+            metadata=RedisMetaData(
+                created_at=time.time() * 1000,
+                updated_at=time.time() * 1000,
+                expire_at=expire_at,
+            ),
+            value=value,
+        )
+
+    @classmethod
+    def create_zset(cls, value: RedisZSet, expire_at: Optional[int] = None) -> "RedisDataObject":
+        return cls(
+            data_type=RedisDataType.ZSET,
+            metadata=RedisMetaData(
+                created_at=time.time() * 1000,
+                updated_at=time.time() * 1000,
+                expire_at=expire_at,
+            ),
+            value=value,
+        )
+
+    @classmethod
+    def create_hash(cls, value: RedisHash, expire_at: Optional[int] = None) -> "RedisDataObject":
+        return cls(
+            data_type=RedisDataType.HASH,
+            metadata=RedisMetaData(
+                created_at=time.time() * 1000,
+                updated_at=time.time() * 1000,
+                expire_at=expire_at,
+            ),
+            value=value,
+        )
+
+    @classmethod
+    def create_none(cls) -> "RedisDataObject":
+        return cls(
+            data_type=RedisDataType.NONE,
+            metadata=RedisMetaData(
+                created_at=time.time() * 1000,
+                updated_at=time.time() * 1000,
+            ),
+            value=None,
+        )
+
+    def set_expiry(self, expire_at: Optional[int]):
+        self.metadata.expire_at = expire_at
+        self.metadata.updated_at = time.time() * 1000
+
+    def is_expired(self):
+        return self.metadata.is_expired()
+
+    def update_access_count(self):
+        self.metadata.update_access_count()
+
+    def serialize(self) -> str:
+        if self.data_type == RedisDataType.STRING:
+            return self.value
+        if self.data_type == RedisDataType.LIST:
+            return f"[{', '.join(self.value)}]"
+        if self.data_type == RedisDataType.SET:
+            return f"{{{', '.join(self.value)}}}"
+        if self.data_type == RedisDataType.ZSET:
+            return f"{{{', '.join([f'{k}={v}' for k, v in self.value.items()])}}}"
+        if self.data_type == RedisDataType.HASH:
+            return f"{{{', '.join([f'{k}={v}' for k, v in self.value.items()])}}}"
+        if self.data_type == RedisDataType.NONE:
+            return "(nil)"
+        return ""
+
+    @property
+    def ttl(self):
+        if self.metadata.expire_at is None:
+            return -1
+
+        remaining = self.metadata.expire_at - time.time() * 1000
+        return remaining if remaining > 0 else -1
+
+
+class RedisDataStore:
+    def __init__(self):
+        self.__data_dict: Dict[str, RedisDataObject] = {}
+
+    def set(
+        self,
+        key: str,
+        value: Union[RedisString, RedisList, RedisSet, RedisZSet, RedisHash, RedisNone],
+        ex: Optional[int] = None,
+        px: Optional[int] = None,
+        exat: Optional[int] = None,
+        pxat: Optional[int] = None,
+        nx: bool = False,
+        xx: bool = False,
+        keepttl: bool = False,
+        get: bool = False,
+    ):
+        """
+        Set key to hold the string value. If key already holds a value, it is overwritten, regardless of its type.
+        Any previous time to live associated with the key is discarded on successful SET operation.
+        Time complexity: O(1)
+        :param key: str
+        :param value: Union[RedisString, RedisList, RedisSet, RedisZSet, RedisHash, RedisNone]
+        :param ex: int - Set the specified expire time, in seconds.
+        :param px: int - Set the specified expire time, in milliseconds.
+        :param exat: int - Set the specified Unix time at which the key will expire, in seconds.
+        :param pxat: int - Set the specified Unix time at which the key will expire, in milliseconds.
+        :param nx: bool - Only set the key if it does not already exist.
+        :param xx: bool - Only set the key if it already exist.
+        :param keepttl: bool - Retain the time to live associated with the key.
+        :param get: bool - Return the old value stored at key, or None when key did not exist.
+        :return:
+        """
+        old_value = None
+        if key in self.__data_dict:
+            old_value = self.__data_dict[key].value
+
+        key_exists = key in self.__data_dict
+        if (nx and key_exists) or (xx and not key_exists):
+            return None
+
+        expire_at = None
+        current_time_ms = time.time() * 1000
+
+        if ex:
+            expire_at = current_time_ms + ex * 1000
+        elif px:
+            expire_at = current_time_ms + px
+        elif exat:
+            expire_at = exat * 1000
+        elif pxat:
+            expire_at = pxat
+
+        if keepttl and key in self.__data_dict:
+            expire_at = self.__data_dict[key].metadata.expire_at
+
+        data_obj = RedisDataObject.create_string(value, expire_at)
+        self.__data_dict[key] = data_obj
+
+        return old_value if get else "OK"
+
+    def get(self, key: str) -> Optional[RedisString]:
+        """
+        Get the value of key. If the key does not exist the special value nil is returned.
+        :param key:
+        :return:
+        """
+        if key not in self.__data_dict:
+            return None
+
+        data_obj = self.__data_dict[key]
+        if data_obj.is_expired():
+            del self.__data_dict[key]
+            return None
+
+        data_obj.update_access_count()
+        return data_obj.value
