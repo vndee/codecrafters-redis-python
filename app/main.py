@@ -69,9 +69,9 @@ class RedisServer:
                 if method == RedisCommand.GET:
                     param = data.value[2].value.lower()
                     if param == "dir":
-                        return RESPBulkString(self.__data_store.dir)
+                        return RESPArray([RESPBulkString("dir"), RESPBulkString(self.__data_store.dir)])
                     if param == "dbfilename":
-                        return RESPBulkString(self.__data_store.dbfilename)
+                        return RESPArray([RESPBulkString("dbfilename"), RESPBulkString(self.__data_store.dbfilename)])
                     return RESPSimpleString("ERR unknown parameter")
 
             case _:
