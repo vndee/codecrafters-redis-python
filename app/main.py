@@ -1,5 +1,5 @@
-import time
 import asyncio
+import argparse
 from typing import Tuple, Any, Dict, List
 
 from app.resp import (
@@ -16,12 +16,18 @@ from app.data import RedisCommand, RedisDataObject, RedisDataStore
 
 
 class RedisServer:
-    def __init__(self, host='127.0.0.1', port=6379):
+    def __init__(
+        self,
+        host: str = "127.0.0.1",
+        port: int = 6379,
+        dir: str = "/tmp/redis-files",
+        dbfilename: str = "dump.rdb",
+    ):
         self.host = host
         self.port = port
         self.resp_parser = RESPParser()
 
-        self.__data_store = RedisDataStore()
+        self.__data_store = RedisDataStore(dir=dir, dbfilename=dbfilename)
 
     def handle_command(self, data: RESPObject) -> RESPObject:
         if not isinstance(data, RESPArray):
@@ -57,6 +63,17 @@ class RedisServer:
             case RedisCommand.GET:
                 key = data.value[1].value
                 return RESPBulkString(self.__data_store.get(key))
+
+            case RedisCommand.CONFIG:
+                method = data.value[1].value.lower()
+                if method == RedisCommand.GET:
+                    param = data.value[2].value.lower()
+                    if param == "dir":
+                        return RESPBulkString(self.__data_store.dir)
+                    if param == "dbfilename":
+                        return RESPBulkString(self.__data_store.dbfilename)
+                    return RESPSimpleString("ERR unknown parameter")
+
             case _:
                 return RESPSimpleString("ERR unknown command")
 
@@ -107,10 +124,13 @@ class RedisServer:
             await server.serve_forever()
 
 
-def main():
-    redis_server = RedisServer()
-    asyncio.run(redis_server.start())
-
-
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser(description="Redis server")
+    parser.add_argument("--host", type=str, default="127.0.0.1", help="Host")
+    parser.add_argument("--port", type=int, default=6379, help="Port")
+    parser.add_argument("--dir", type=str, default="/tmp/redis-files", help="Directory to store data")
+    parser.add_argument("--dbfilename", type=str, default="dump.rdb", help="Database filename")
+    args = parser.parse_args()
+
+    redis_server = RedisServer(dir=args.dir, dbfilename=args.dbfilename, host=args.host, port=args.port)
+    asyncio.run(redis_server.start())

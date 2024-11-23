@@ -9,59 +9,7 @@ class RedisCommand(StrEnum):
     ECHO = "echo"
     SET = "set"
     GET = "get"
-    INCR = "incr"
-    DECR = "decr"
-    EXISTS = "exists"
-    DEL = "del"
-    KEYS = "keys"
-    FLUSHALL = "flushall"
-    FLUSHDB = "flushdb"
-    TYPE = "type"
-    EXPIRE = "expire"
-    TTL = "ttl"
-    PERSIST = "persist"
-    RENAME = "rename"
-    RENAMENX = "renamenx"
-    RANDOMKEY = "randomkey"
-    DBSIZE = "dbsize"
-    SELECT = "select"
-    MOVE = "move"
-    PEXPIRE = "pexpire"
-    PTTL = "pttl"
-    EXPIREAT = "expireat"
-    PEXPIREAT = "pexpireat"
-    SCAN = "scan"
-    MGET = "mget"
-    MSET = "mset"
-    MSETNX = "msetnx"
-    SETNX = "setnx"
-    SETEX = "setex"
-    APPEND = "append"
-    GETSET = "getset"
-    STRLEN = "strlen"
-    INCRBY = "incrby"
-    DECRBY = "decrby"
-    INCRBYFLOAT = "incrbyfloat"
-    HSET = "hset"
-    HGET = "hget"
-    HGETALL = "hgetall"
-    HDEL = "hdel"
-    HEXISTS = "hexists"
-    HLEN = "hlen"
-    HMGET = "hmget"
-    HMSET = "hmset"
-    HINCRBY = "hincrby"
-    HINCRBYFLOAT = "hincrbyfloat"
-    HKEYS = "hkeys"
-    HVALS = "hvals"
-    HSTRLEN = "hstrlen"
-    LINDEX = "lindex"
-    LINSERT = "linsert"
-    LLEN = "llen"
-    LPOP = "lpop"
-    LPUSH = "lpush"
-    LPUSHX = "lpushx"
-    LRANGE = "lrange"
+    CONFIG = "config"
 
 
 class RedisDataType(StrEnum):
@@ -215,7 +163,13 @@ class RedisDataObject:
 
 
 class RedisDataStore:
-    def __init__(self):
+    def __init__(
+        self,
+        dir: str = "/tmp/redis-files",
+        dbfilename: str = "dump.rdb",
+    ):
+        self.dir = dir
+        self.dbfilename = dbfilename
         self.__data_dict: Dict[str, RedisDataObject] = {}
 
     def set(
