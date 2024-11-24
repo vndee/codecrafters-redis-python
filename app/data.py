@@ -167,7 +167,7 @@ class RedisDataStore:
 
                     self.__data_dict[db][key] = RedisDataObject.deserialize_from_rdb(value)
 
-            print(f"Loaded {len(self.__data_dict)} keys from RDB file")
+            print(f"Loaded {len(self.__data_dict[self.database_idx].keys())} keys from RDB file")
             print(f"Data: {self.__data_dict}")
         except Exception as e:
             print(f"Error loading RDB file: {str(e)}")
