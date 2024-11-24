@@ -60,7 +60,8 @@ class RedisServer:
 
             case RedisCommand.GET:
                 key = data.value[1].value
-                return RESPBulkString(self.__data_store.get(key))
+                return RESPSimpleString(self.__data_store.get(key))
+                # return RESPBulkString(self.__data_store.get(key))
 
             case RedisCommand.CONFIG:
                 method = data.value[1].value.lower()
