@@ -60,10 +60,10 @@ class RDBParser:
                         self.data[self.current_db] = {}
                 elif op_type == RDBOperationType.EXPIRETIME:
                     expire_time = struct.unpack('I', f.read(4))[0]
-                    self._process_key_value_pair(f, expire_time)
+                    self._process_key_value_pair(f, expire_time * 1000)
                 elif op_type == RDBOperationType.EXPIRETIME_MS:
                     expire_time = struct.unpack('Q', f.read(8))[0]
-                    self._process_key_value_pair(f, expire_time / 1000)
+                    self._process_key_value_pair(f, expire_time)
                 elif op_type == RDBOperationType.AUX:
                     aux_key = self._read_string(f)
                     aux_value = self._read_string(f)
