@@ -58,6 +58,7 @@ class RedisServer:
         port: int = 6379,
         dir: str = "/tmp/redis-files",
         dbfilename: str = "dump.rdb",
+        replicaof: str = None,
     ):
         self.host = host
         self.port = port
@@ -65,7 +66,7 @@ class RedisServer:
 
         self.__data_store = RedisDataStore(dir=dir, dbfilename=dbfilename)
         self.__repl_info = RedisReplicationInformation(
-            role=RedisReplicationRole.MASTER,
+            role=RedisReplicationRole.MASTER if replicaof is None else RedisReplicationRole.SLAVE,
             connected_slaves=0,
             master_replid="",
             master_repl_offset=0,
@@ -184,7 +185,8 @@ if __name__ == "__main__":
     parser.add_argument("--port", type=int, default=6379, help="Port")
     parser.add_argument("--dir", type=str, default="rdb", help="Directory to store data")
     parser.add_argument("--dbfilename", type=str, default="dump.rdb", help="Database filename")
+    parser.add_argument("--replicaof", type=str, help="Replicate another Redis server", default=None)
     args = parser.parse_args()
 
-    redis_server = RedisServer(dir=args.dir, dbfilename=args.dbfilename, host=args.host, port=args.port)
+    redis_server = RedisServer(dir=args.dir, dbfilename=args.dbfilename, host=args.host, port=args.port, replicaof=args.replicaof)
     asyncio.run(redis_server.start())
