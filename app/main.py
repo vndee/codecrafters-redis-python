@@ -69,7 +69,7 @@ class RedisServer:
         self.__repl_info = RedisReplicationInformation(
             role=RedisReplicationRole.MASTER if replicaof is None else RedisReplicationRole.SLAVE,
             connected_slaves=0,
-            master_replid="",
+            master_replid=self.__generate_master_replid(),
             master_repl_offset=0,
             second_repl_offset=0,
             repl_backlog_active=False,
@@ -78,7 +78,8 @@ class RedisServer:
             repl_backlog_histlen=0,
         )
 
-    def __generate_master_replid(self):
+    @staticmethod
+    def __generate_master_replid() -> str:
         """
         Generate a unique master replication ID (pseudo random alphanumeric string of 40 characters).
         :return:
