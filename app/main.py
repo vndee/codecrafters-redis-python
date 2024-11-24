@@ -74,7 +74,7 @@ class RedisServer:
             else:
                 self.__replicaof = replicaof
 
-                replconf_listening_port = RESPArray([RESPBulkString("REPLCONF"), RESPBulkString("listening-port"), RESPBulkString(self.__replicaof.split(" ")[1])])
+                replconf_listening_port = RESPArray([RESPBulkString("REPLCONF"), RESPBulkString("listening-port"), RESPBulkString(str(port))])
                 print(f"Sent {replconf_listening_port.serialize()} -> {self.__send_to_master(replconf_listening_port).serialize()}")
 
                 replconf_capa_psync2 = RESPArray([RESPBulkString("REPLCONF"), RESPBulkString("capa"), RESPBulkString("psync2")])
