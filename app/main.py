@@ -1,6 +1,8 @@
 import asyncio
 import argparse
+from enum import StrEnum, IntEnum
 from typing import Any, Dict
+from dataclasses import dataclass
 
 from app.resp import (
     RESPParser,
@@ -11,6 +13,42 @@ from app.resp import (
     RESPArray,
 )
 from app.data import RedisCommand, RedisDataStore
+
+
+class RedisReplicationRole(StrEnum):
+    MASTER = "master"
+    SLAVE = "slave"
+    REPLICA = "replica"
+
+
+@dataclass
+class RedisReplicationInformation:
+    role: RedisReplicationRole
+    connected_slaves: int
+    master_replid: str
+    master_repl_offset: int
+    second_repl_offset: int
+    repl_backlog_active: bool
+    repl_backlog_size: int
+    repl_backlog_first_byte_offset: int
+    repl_backlog_histlen: int
+
+    def serialize(self) -> RESPBulkString:
+        """
+        Serialize the replication information with the format expected by the INFO command, where each line is a key-value pair
+        separate by a colon. The key is the attribute name and the value is the attribute value.
+        """
+        return RESPBulkString(
+            f"role:{self.role}\n"
+            f"connected_slaves:{self.connected_slaves}\n"
+            f"master_replid:{self.master_replid}\n"
+            f"master_repl_offset:{self.master_repl_offset}\n"
+            f"second_repl_offset:{self.second_repl_offset}\n"
+            f"repl_backlog_active:{1 if self.repl_backlog_active else 0}\n"
+            f"repl_backlog_size:{self.repl_backlog_size}\n"
+            f"repl_backlog_first_byte_offset:{self.repl_backlog_first_byte_offset}\n"
+            f"repl_backlog_histlen:{self.repl_backlog_histlen}\n"
+        )
 
 
 class RedisServer:
@@ -26,6 +64,17 @@ class RedisServer:
         self.resp_parser = RESPParser()
 
         self.__data_store = RedisDataStore(dir=dir, dbfilename=dbfilename)
+        self.__repl_info = RedisReplicationInformation(
+            role=RedisReplicationRole.MASTER,
+            connected_slaves=0,
+            master_replid="",
+            master_repl_offset=0,
+            second_repl_offset=0,
+            repl_backlog_active=False,
+            repl_backlog_size=0,
+            repl_backlog_first_byte_offset=0,
+            repl_backlog_histlen=0,
+        )
 
     def handle_command(self, data: RESPObject) -> RESPObject:
         if not isinstance(data, RESPArray):
@@ -75,6 +124,9 @@ class RedisServer:
             case RedisCommand.KEYS:
                 pattern = data.value[1].value
                 return RESPArray([RESPBulkString(key) for key in self.__data_store.keys(pattern)])
+
+            case RedisCommand.INFO:
+                return self.__repl_info.serialize()
 
             case _:
                 return RESPSimpleString("ERR unknown command")
