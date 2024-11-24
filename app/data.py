@@ -163,7 +163,7 @@ class RedisDataStore:
                     expire_at = value["expire_at"]
                     if expire_at and expire_at < time.time() * 1000:
                         continue
-                    print(value)
+
                     self.__data_dict[db][key] = RedisDataObject.deserialize_from_rdb(value)
 
             print(f"Loaded {len(self.__data_dict)} keys from RDB file")
