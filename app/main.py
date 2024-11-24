@@ -1,3 +1,4 @@
+import socket
 import uuid
 import asyncio
 import argparse
@@ -100,9 +101,13 @@ class RedisServer:
         """
         master_host, master_port = master_address.split(" ")
         try:
-            client = asyncio.open_connection(master_host, master_port)
-            client.close()
-            return True
+            client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            client.connect((master_host, int(master_port)))
+            client.send(RESPSimpleString("PING").serialize())
+
+            response = client.recv(1024)
+            print(f"Received: {response}")
+            return response == b"+PONG\r\n"
         except Exception as _:
             return False
 
