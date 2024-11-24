@@ -160,12 +160,13 @@ class RedisDataStore:
 
             for db, keys in data.items():
                 for key, value in keys.items():
-                    print(f"Restoring key: {key} - {value}")
                     expire_at = value["expire_at"]
                     if expire_at and expire_at < time.time() * 1000:
+                        print(f"The key: {key} has expired, skipping")
                         continue
 
                     self.__data_dict[db][key] = RedisDataObject.deserialize_from_rdb(value)
+                    print(f"Restored key: {key} with value: {self.__data_dict[db][key].serialize()}")
 
             print(f"Loaded {len(self.__data_dict[self.database_idx].keys())} keys from RDB file")
             print(f"Data: {self.__data_dict}")
