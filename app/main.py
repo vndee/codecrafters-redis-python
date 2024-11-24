@@ -96,15 +96,14 @@ class RedisServer:
         """
         return uuid.uuid4().hex
 
-    @staticmethod
-    def __send_socket(client: socket.socket, data: bytes):
+    def __send_socket(self, client: socket.socket, data: RESPObject) -> RESPObject:
         """
         Send data to the client socket.
         :param client: Client socket.
         :param data: Data to send.
         """
-        client.send(data)
-        return client.recv(1024)
+        client.send(data.serialize())
+        return self.resp_parser.parse(client.recv(1024))
 
     def __ping_master_node(self, master_address: str) -> bool:
         """
@@ -116,18 +115,17 @@ class RedisServer:
         try:
             client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             client.connect((master_host, int(master_port)))
-            response = self.__send_socket(client, RESPArray([RESPBulkString("PING")]).serialize())
+            response = self.__send_socket(client, RESPArray([RESPBulkString("PING")]))
             if response != b"+PONG\r\n":
                 return False
 
             replconf_listening_port = RESPArray([RESPBulkString("REPLCONF"), RESPBulkString("listening-port"), RESPBulkString(str(self.port))])
-            response = self.__send_socket(client, replconf_listening_port.serialize())
+            response = self.__send_socket(client, replconf_listening_port)
             if response != b"+OK\r\n":
                 return False
-            print(f"Sent {replconf_listening_port.serialize()} -> {response}")
 
             replconf_capa_psync2 = RESPArray([RESPBulkString("REPLCONF"), RESPBulkString("capa"), RESPBulkString("psync2")])
-            response = self.__send_socket(client, replconf_capa_psync2.serialize())
+            response = self.__send_socket(client, replconf_capa_psync2)
             if response != b"+OK\r\n":
                 return False
             print(f"Sent {replconf_capa_psync2.serialize()} -> {response}")
