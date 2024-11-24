@@ -72,6 +72,7 @@ class RedisServer:
             if not self.__ping_master_node(replicaof):
                 raise ValueError(f"Could not connect to master node {replicaof}")
             else:
+                print(f"Connected to master node {replicaof}")
                 self.__replicaof = replicaof
 
                 replconf_listening_port = RESPArray([RESPBulkString("REPLCONF"), RESPBulkString("listening-port"), RESPBulkString(str(port))])
