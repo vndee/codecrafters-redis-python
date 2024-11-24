@@ -1,7 +1,7 @@
 import uuid
 import asyncio
 import argparse
-from enum import StrEnum, IntEnum
+from enum import StrEnum
 from typing import Any, Dict
 from dataclasses import dataclass
 
