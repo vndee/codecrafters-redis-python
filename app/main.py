@@ -96,6 +96,16 @@ class RedisServer:
         """
         return uuid.uuid4().hex
 
+    @staticmethod
+    def __send_socket(client: socket.socket, data: bytes):
+        """
+        Send data to the client socket.
+        :param client: Client socket.
+        :param data: Data to send.
+        """
+        client.send(data)
+        return client.recv(1024)
+
     def __ping_master_node(self, master_address: str) -> bool:
         """
         Ping the master node to check if it is alive.
@@ -106,20 +116,21 @@ class RedisServer:
         try:
             client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             client.connect((master_host, int(master_port)))
-            client.send(RESPArray([RESPBulkString("PING")]).serialize())
-            response = client.recv(1024)
+            response = self.__send_socket(client, RESPArray([RESPBulkString("PING")]).serialize())
             if response != b"+PONG\r\n":
                 return False
 
-            replconf_listening_port = RESPArray(
-                [RESPBulkString("REPLCONF"), RESPBulkString("listening-port"), RESPBulkString(str(self.port))])
-            print(
-                f"Sent {replconf_listening_port.serialize()} -> {self.__send_to_master(replconf_listening_port).serialize()}")
+            replconf_listening_port = RESPArray([RESPBulkString("REPLCONF"), RESPBulkString("listening-port"), RESPBulkString(str(self.port))])
+            response = self.__send_socket(client, replconf_listening_port.serialize())
+            if response != b"+OK\r\n":
+                return False
+            print(f"Sent {replconf_listening_port.serialize()} -> {response}")
 
-            replconf_capa_psync2 = RESPArray(
-                [RESPBulkString("REPLCONF"), RESPBulkString("capa"), RESPBulkString("psync2")])
-            print(
-                f"Sent {replconf_capa_psync2.serialize()} -> {self.__send_to_master(replconf_capa_psync2).serialize()}")
+            replconf_capa_psync2 = RESPArray([RESPBulkString("REPLCONF"), RESPBulkString("capa"), RESPBulkString("psync2")])
+            response = self.__send_socket(client, replconf_capa_psync2.serialize())
+            if response != b"+OK\r\n":
+                return False
+            print(f"Sent {replconf_capa_psync2.serialize()} -> {response}")
 
             client.close()
             return True
