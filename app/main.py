@@ -103,7 +103,7 @@ class RedisServer:
         try:
             client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             client.connect((master_host, int(master_port)))
-            client.send(RESPSimpleString("PING").serialize())
+            client.send(RESPArray([RESPBulkString("PING")]).serialize())
 
             response = client.recv(1024)
             print(f"Received: {response}")
