@@ -116,19 +116,18 @@ class RedisServer:
             client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             client.connect((master_host, int(master_port)))
             response = self.__send_socket(client, RESPArray([RESPBulkString("PING")]))
-            if response != b"+PONG\r\n":
+            if response.serialize() != b"+PONG\r\n":
                 return False
 
             replconf_listening_port = RESPArray([RESPBulkString("REPLCONF"), RESPBulkString("listening-port"), RESPBulkString(str(self.port))])
             response = self.__send_socket(client, replconf_listening_port)
-            if response != b"+OK\r\n":
+            if response.serialize() != b"+OK\r\n":
                 return False
 
             replconf_capa_psync2 = RESPArray([RESPBulkString("REPLCONF"), RESPBulkString("capa"), RESPBulkString("psync2")])
             response = self.__send_socket(client, replconf_capa_psync2)
-            if response != b"+OK\r\n":
+            if response.serialize() != b"+OK\r\n":
                 return False
-            print(f"Sent {replconf_capa_psync2.serialize()} -> {response}")
 
             client.close()
             return True
