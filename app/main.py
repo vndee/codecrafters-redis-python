@@ -73,7 +73,7 @@ class RedisServer:
                 raise ValueError(f"Could not connect to master node {replicaof}")
             else:
                 self.__replicaof = replicaof
-                self.__send_to_master(RESPArray([RESPBulkString("REPLCONF"), RESPBulkString("listening-port"), RESPBulkString(str(port))]))
+                self.__send_to_master(RESPArray([RESPBulkString("REPLCONF"), RESPBulkString("listening-port"), RESPBulkString(str(self.__replicaof.split(" ")[1]))]))
                 self.__send_to_master(RESPArray([RESPBulkString("REPLCONF"), RESPBulkString("capa"), RESPBulkString("psync2")]))
 
         self.__repl_info = RedisReplicationInformation(
