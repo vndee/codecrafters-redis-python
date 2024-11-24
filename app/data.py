@@ -162,7 +162,7 @@ class RedisDataStore:
                 for key, value in keys.items():
                     expire_at = value["expire_at"]
                     if expire_at and expire_at < time.time() * 1000:
-                        print(f"The key: {key} has expired, skipping")
+                        print(f"The key: {key} has expired {time.time() * 1000 - expire_at}ms ago - skipping")
                         continue
 
                     self.__data_dict[db][key] = RedisDataObject.deserialize_from_rdb(value)
