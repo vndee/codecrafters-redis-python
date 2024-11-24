@@ -66,6 +66,11 @@ class RedisServer:
         self.resp_parser = RESPParser()
 
         self.__data_store = RedisDataStore(dir=dir, dbfilename=dbfilename)
+
+        if replicaof is not None:
+            if not self.__ping_master_node(replicaof):
+                raise ValueError(f"Could not connect to master node {replicaof}")
+
         self.__repl_info = RedisReplicationInformation(
             role=RedisReplicationRole.MASTER if replicaof is None else RedisReplicationRole.SLAVE,
             connected_slaves=0,
@@ -85,6 +90,21 @@ class RedisServer:
         :return:
         """
         return uuid.uuid4().hex
+
+    @staticmethod
+    def __ping_master_node(master_address: str) -> bool:
+        """
+        Ping the master node to check if it is alive.
+        :param master_address: Address of the master node.
+        :return: True if the master node is alive, False otherwise.
+        """
+        master_host, master_port = master_address.split(" ")
+        try:
+            client = asyncio.open_connection(master_host, master_port)
+            client.close()
+            return True
+        except Exception as _:
+            return False
 
     def handle_command(self, data: RESPObject) -> RESPObject:
         if not isinstance(data, RESPArray):

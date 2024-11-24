@@ -1,6 +1,7 @@
 import os
 import re
 import time
+import socket
 from enum import StrEnum
 from fnmatch import translate
 from functools import lru_cache
