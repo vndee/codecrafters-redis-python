@@ -75,11 +75,6 @@ class RedisServer:
                 print(f"Connected to master node {replicaof}")
                 self.__replicaof = replicaof
 
-                replconf_listening_port = RESPArray([RESPBulkString("REPLCONF"), RESPBulkString("listening-port"), RESPBulkString(str(port))])
-                print(f"Sent {replconf_listening_port.serialize()} -> {self.__send_to_master(replconf_listening_port).serialize()}")
-
-                replconf_capa_psync2 = RESPArray([RESPBulkString("REPLCONF"), RESPBulkString("capa"), RESPBulkString("psync2")])
-                print(f"Sent {replconf_capa_psync2.serialize()} -> {self.__send_to_master(replconf_capa_psync2).serialize()}")
 
         self.__repl_info = RedisReplicationInformation(
             role=RedisReplicationRole.MASTER if replicaof is None else RedisReplicationRole.SLAVE,
@@ -101,8 +96,7 @@ class RedisServer:
         """
         return uuid.uuid4().hex
 
-    @staticmethod
-    def __ping_master_node(master_address: str) -> bool:
+    def __ping_master_node(self, master_address: str) -> bool:
         """
         Ping the master node to check if it is alive.
         :param master_address: Address of the master node.
@@ -114,7 +108,21 @@ class RedisServer:
             client.connect((master_host, int(master_port)))
             client.send(RESPArray([RESPBulkString("PING")]).serialize())
             response = client.recv(1024)
-            return response == b"+PONG\r\n"
+            if response != b"+PONG\r\n":
+                return False
+
+            replconf_listening_port = RESPArray(
+                [RESPBulkString("REPLCONF"), RESPBulkString("listening-port"), RESPBulkString(str(self.port))])
+            print(
+                f"Sent {replconf_listening_port.serialize()} -> {self.__send_to_master(replconf_listening_port).serialize()}")
+
+            replconf_capa_psync2 = RESPArray(
+                [RESPBulkString("REPLCONF"), RESPBulkString("capa"), RESPBulkString("psync2")])
+            print(
+                f"Sent {replconf_capa_psync2.serialize()} -> {self.__send_to_master(replconf_capa_psync2).serialize()}")
+
+            client.close()
+            return True
         except Exception as _:
             return False
 
