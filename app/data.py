@@ -19,6 +19,7 @@ class RedisCommand(StrEnum):
     CONFIG = "config"
     KEYS = "keys"
     INFO = "info"
+    REPLCONF = "replconf"
 
 
 RedisString = str

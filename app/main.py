@@ -71,6 +71,10 @@ class RedisServer:
         if replicaof is not None:
             if not self.__ping_master_node(replicaof):
                 raise ValueError(f"Could not connect to master node {replicaof}")
+            else:
+                self.__replicaof = replicaof
+                self.__send_to_master(RESPArray([RESPBulkString("REPLCONF"), RESPBulkString("listening-port"), RESPBulkString(str(port))]))
+                self.__send_to_master(RESPArray([RESPBulkString("REPLCONF"), RESPBulkString("capa"), RESPBulkString("psync2")]))
 
         self.__repl_info = RedisReplicationInformation(
             role=RedisReplicationRole.MASTER if replicaof is None else RedisReplicationRole.SLAVE,
@@ -108,6 +112,22 @@ class RedisServer:
             return response == b"+PONG\r\n"
         except Exception as _:
             return False
+
+    def __send_to_master(self, data: RESPObject) -> RESPObject:
+        """
+        Send the data to the master node.
+        :param data: Data to send.
+        """
+        master_host, master_port = self.__replicaof.split(" ")
+        try:
+            client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            client.connect((master_host, int(master_port)))
+            client.send(data.serialize())
+            response = client.recv(1024)
+            return self.resp_parser.parse(response)
+        except Exception as e:
+            print(f"Error sending data to master: {str(e)}")
+            return RESPSimpleString("ERR error sending data to master")
 
     def handle_command(self, data: RESPObject) -> RESPObject:
         if not isinstance(data, RESPArray):
@@ -160,6 +180,10 @@ class RedisServer:
 
             case RedisCommand.INFO:
                 return self.__repl_info.serialize()
+
+            case RedisCommand.REPLCONF:
+                if self.__repl_info.role == RedisReplicationRole.MASTER:
+                    return RESPSimpleString("OK")
 
             case _:
                 return RESPSimpleString("ERR unknown command")
