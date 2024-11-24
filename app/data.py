@@ -1,6 +1,9 @@
 import os
+import re
 import time
 from enum import StrEnum
+from fnmatch import translate
+from functools import lru_cache
 from dataclasses import dataclass
 from typing import Dict, Any, Optional, List, Set, Union
 
@@ -13,6 +16,7 @@ class RedisCommand(StrEnum):
     SET = "set"
     GET = "get"
     CONFIG = "config"
+    KEYS = "keys"
 
 
 RedisString = str
@@ -166,6 +170,29 @@ class RedisDataStore:
         except Exception as e:
             print(f"Error loading RDB file: {str(e)}")
 
+    @lru_cache(maxsize=None)
+    def __glob_to_regex(self, pattern: str) -> re.Pattern:
+        """
+        Convert a glob-style pattern to a regex pattern.
+        Cache the compiled regex pattern for future use.
+        :param pattern:
+        :return:
+        """
+        rg_pattern = None
+        if pattern == "*":
+            return re.compile(".*")
+
+        if "*" not in pattern and "?" not in pattern and "[" not in pattern:
+            return re.compile(re.escape(pattern))
+
+        rg_pattern = translate(pattern)
+        rg_pattern = rg_pattern.rstrip("\\Z")
+        return re.compile(rg_pattern)
+
+    def switch_database(self, database_idx: int):
+        self.database_idx = database_idx
+        self.__data_dict.setdefault(self.database_idx, {})
+
     def set(
         self,
         key: str,
@@ -239,6 +266,36 @@ class RedisDataStore:
 
         return data_obj.value
 
-    def switch_database(self, database_idx: int):
-        self.database_idx = database_idx
-        self.__data_dict.setdefault(self.database_idx, {})
+    def keys(self, pattern: str) -> List[str]:
+        """
+        Returns all keys matching pattern using Redis glob-style patterns.
+
+        Time complexity: O(N) with N being the number of keys in the database
+        Space complexity: O(N) for the returned list
+
+        Pattern special characters:
+        * - matches any sequence of characters
+        ? - matches any single character
+        [...] - matches any single character within the brackets
+        \\x - escape character x
+
+        Examples:
+        - h?llo matches hello, hallo, hxllo
+        - h*llo matches hllo, heeeello, h123llo
+        - h[ae]llo matches hello and hallo, but not hillo
+
+        :param pattern:
+        :return:
+        """
+        regex = self.__glob_to_regex(pattern)
+
+        matched_keys = []
+        for key, data_obj in self.__data_dict[self.database_idx].items():
+            if data_obj.is_expired():
+                del self.__data_dict[self.database_idx][key]
+                continue
+
+            if regex.match(key):
+                matched_keys.append(key)
+
+        return matched_keys

@@ -6,13 +6,11 @@ from app.resp import (
     RESPParser,
     RESPObjectType,
     RESPObject,
-    RESPProtocolVersion,
     RESPSimpleString,
-    RESPInteger,
     RESPBulkString,
     RESPArray,
 )
-from app.data import RedisCommand, RedisDataObject, RedisDataStore
+from app.data import RedisCommand, RedisDataStore
 
 
 class RedisServer:
@@ -73,6 +71,10 @@ class RedisServer:
                     if param == "dbfilename":
                         return RESPArray([RESPBulkString("dbfilename"), RESPBulkString(self.__data_store.dbfilename)])
                     return RESPSimpleString("ERR unknown parameter")
+
+            case RedisCommand.KEYS:
+                pattern = data.value[1].value
+                return RESPArray([RESPBulkString(key) for key in self.__data_store.keys(pattern)])
 
             case _:
                 return RESPSimpleString("ERR unknown command")
