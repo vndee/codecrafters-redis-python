@@ -128,7 +128,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Redis server")
     parser.add_argument("--host", type=str, default="127.0.0.1", help="Host")
     parser.add_argument("--port", type=int, default=6379, help="Port")
-    parser.add_argument("--dir", type=str, default="/tmp/redis-files", help="Directory to store data")
+    parser.add_argument("--dir", type=str, default="rdb", help="Directory to store data")
     parser.add_argument("--dbfilename", type=str, default="dump.rdb", help="Database filename")
     args = parser.parse_args()
 

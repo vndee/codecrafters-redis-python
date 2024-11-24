@@ -1,7 +1,10 @@
+import os
 import time
 from enum import StrEnum
 from dataclasses import dataclass
 from typing import Dict, Any, Optional, List, Set, Union
+
+from app.rdb import RDBParser, RDBEncoding
 
 
 class RedisCommand(StrEnum):
@@ -10,16 +13,6 @@ class RedisCommand(StrEnum):
     SET = "set"
     GET = "get"
     CONFIG = "config"
-
-
-class RedisDataType(StrEnum):
-    STRING = "string"
-    LIST = "list"
-    SET = "set"
-    ZSET = "zset"
-    HASH = "hash"
-    STREAM = "stream"
-    NONE = "none"
 
 
 RedisString = str
@@ -31,134 +24,103 @@ RedisNone = None
 
 
 @dataclass
-class RedisMetaData:
-    created_at: float
-    updated_at: float
-    expire_at: Optional[int] = None
-    access_count: int = 0
-
-    def is_expired(self):
-        if self.expire_at is None:
-            return False
-        return time.time() * 1000 >= self.expire_at
-
-    def update_access_count(self):
-        self.access_count += 1
-        self.updated_at = time.time() * 1000
-
-
-@dataclass
 class RedisDataObject:
     """
     Represents a Redis data object that can hold different types of values
     with associated metadata
     """
-    data_type: RedisDataType
-    metadata: RedisMetaData
+    data_type: RDBEncoding
     value: Union[RedisString, RedisList, RedisSet, RedisZSet, RedisHash, None]
+    expire_at: Optional[float] = None
 
     @classmethod
     def create_string(cls, value: RedisString, expire_at: Optional[int] = None) -> "RedisDataObject":
         return cls(
-            data_type=RedisDataType.STRING,
-            metadata=RedisMetaData(
-                created_at=time.time() * 1000,
-                updated_at=time.time() * 1000,
-                expire_at=expire_at,
-            ),
+            data_type=RDBEncoding.STRING,
+            expire_at=expire_at,
             value=value,
         )
 
     @classmethod
     def create_list(cls, value: RedisList, expire_at: Optional[int] = None) -> "RedisDataObject":
         return cls(
-            data_type=RedisDataType.LIST,
-            metadata=RedisMetaData(
-                created_at=time.time() * 1000,
-                updated_at=time.time() * 1000,
-                expire_at=expire_at,
-            ),
+            data_type=RDBEncoding.LIST,
+            expire_at=expire_at,
             value=value,
         )
 
     @classmethod
     def create_set(cls, value: RedisSet, expire_at: Optional[int] = None) -> "RedisDataObject":
         return cls(
-            data_type=RedisDataType.SET,
-            metadata=RedisMetaData(
-                created_at=time.time() * 1000,
-                updated_at=time.time() * 1000,
-                expire_at=expire_at,
-            ),
+            data_type=RDBEncoding.SET,
+            expire_at=expire_at,
             value=value,
         )
 
     @classmethod
     def create_zset(cls, value: RedisZSet, expire_at: Optional[int] = None) -> "RedisDataObject":
         return cls(
-            data_type=RedisDataType.ZSET,
-            metadata=RedisMetaData(
-                created_at=time.time() * 1000,
-                updated_at=time.time() * 1000,
-                expire_at=expire_at,
-            ),
+            data_type=RDBEncoding.ZSET,
+            expire_at=expire_at,
             value=value,
         )
 
     @classmethod
     def create_hash(cls, value: RedisHash, expire_at: Optional[int] = None) -> "RedisDataObject":
         return cls(
-            data_type=RedisDataType.HASH,
-            metadata=RedisMetaData(
-                created_at=time.time() * 1000,
-                updated_at=time.time() * 1000,
-                expire_at=expire_at,
-            ),
+            data_type=RDBEncoding.HASH,
+            expire_at=expire_at,
             value=value,
         )
 
     @classmethod
     def create_none(cls) -> "RedisDataObject":
         return cls(
-            data_type=RedisDataType.NONE,
-            metadata=RedisMetaData(
-                created_at=time.time() * 1000,
-                updated_at=time.time() * 1000,
-            ),
+            data_type=RDBEncoding.STRING,
+            expire_at=None,
             value=None,
         )
 
     def set_expiry(self, expire_at: Optional[int]):
-        self.metadata.expire_at = expire_at
-        self.metadata.updated_at = time.time() * 1000
+        self.expire_at = expire_at
 
     def is_expired(self):
-        return self.metadata.is_expired()
-
-    def update_access_count(self):
-        self.metadata.update_access_count()
+        return self.expire_at is not None and self.expire_at < time.time() * 1000
 
     def serialize(self) -> str:
-        if self.data_type == RedisDataType.STRING:
+        if self.data_type == RDBEncoding.STRING:
             return self.value
-        if self.data_type == RedisDataType.LIST:
+        if self.data_type == RDBEncoding.LIST:
             return f"[{', '.join(self.value)}]"
-        if self.data_type == RedisDataType.SET:
+        if self.data_type == RDBEncoding.SET:
             return f"{{{', '.join(self.value)}}}"
-        if self.data_type == RedisDataType.ZSET:
+        if self.data_type == RDBEncoding.ZSET:
             return f"{{{', '.join([f'{k}={v}' for k, v in self.value.items()])}}}"
-        if self.data_type == RedisDataType.HASH:
+        if self.data_type == RDBEncoding.HASH:
             return f"{{{', '.join([f'{k}={v}' for k, v in self.value.items()])}}}"
-        if self.data_type == RedisDataType.NONE:
-            return "(nil)"
+
         return ""
+
+    def serialize_for_rdb(self) -> Dict[str, Any]:
+        return {
+            "type": self.data_type,
+            "expire_at": self.expire_at,
+            "value": self.value,
+        }
+
+    @classmethod
+    def deserialize_from_rdb(cls, data: Dict[str, Any]) -> "RedisDataObject":
+        data_type = RDBEncoding(data["type"])
+        expire_at = data["expire_at"]
+        value = data["value"]
+        return cls(data_type=data_type, expire_at=expire_at, value=value)
 
     @property
     def ttl(self):
-        if self.metadata.expire_at is None:
+        if self.expire_at is None:
             return -1
 
-        remaining = self.metadata.expire_at - time.time() * 1000
+        remaining = self.expire_at - time.time() * 1000
         return remaining if remaining > 0 else -1
 
 
@@ -167,10 +129,42 @@ class RedisDataStore:
         self,
         dir: str = "/tmp/redis-files",
         dbfilename: str = "dump.rdb",
+        database_idx: int = 0,
     ):
         self.dir = dir
         self.dbfilename = dbfilename
-        self.__data_dict: Dict[str, RedisDataObject] = {}
+        self.database_idx = database_idx
+        self.__data_dict: Dict[int, Dict[str, RedisDataObject]] = {}    # database -> key -> value
+
+        os.makedirs(self.dir, exist_ok=True)
+        self.__data_dict.setdefault(self.database_idx, {})
+
+        self.__load_from_rdb()
+
+    def __load_from_rdb(self):
+        """
+        Load data from RDB file if it exists
+        :return:
+        """
+        rdb_file_path = os.path.join(self.dir, self.dbfilename)
+        if not os.path.exists(rdb_file_path):
+            return
+
+        try:
+            rdb_parser = RDBParser(file_path=rdb_file_path)
+            data = rdb_parser.parse()
+
+            for db, keys in data.items():
+                for key, value in keys.items():
+                    expire_at = value["expire_at"]
+                    if expire_at and expire_at < time.time() * 1000:
+                        continue
+                    print(value)
+                    self.__data_dict[db][key] = RedisDataObject.deserialize_from_rdb(value)
+
+            print(f"Loaded {len(self.__data_dict)} keys from RDB file")
+        except Exception as e:
+            print(f"Error loading RDB file: {str(e)}")
 
     def set(
         self,
@@ -203,9 +197,9 @@ class RedisDataStore:
         """
         old_value = None
         if key in self.__data_dict:
-            old_value = self.__data_dict[key].value
+            old_value = self.__data_dict[self.database_idx][key].value
 
-        key_exists = key in self.__data_dict
+        key_exists = key in self.__data_dict[self.database_idx]
         if (nx and key_exists) or (xx and not key_exists):
             return None
 
@@ -221,11 +215,11 @@ class RedisDataStore:
         elif pxat:
             expire_at = pxat
 
-        if keepttl and key in self.__data_dict:
-            expire_at = self.__data_dict[key].metadata.expire_at
+        if keepttl and key in self.__data_dict[self.database_idx]:
+            expire_at = self.__data_dict[self.database_idx][key].expire_at
 
         data_obj = RedisDataObject.create_string(value, expire_at)
-        self.__data_dict[key] = data_obj
+        self.__data_dict[self.database_idx][key] = data_obj
 
         return old_value if get else "OK"
 
@@ -235,13 +229,16 @@ class RedisDataStore:
         :param key:
         :return:
         """
-        if key not in self.__data_dict:
+        if key not in self.__data_dict[self.database_idx]:
             return None
 
-        data_obj = self.__data_dict[key]
+        data_obj = self.__data_dict[self.database_idx][key]
         if data_obj.is_expired():
-            del self.__data_dict[key]
+            del self.__data_dict[self.database_idx][key]
             return None
 
-        data_obj.update_access_count()
         return data_obj.value
+
+    def switch_database(self, database_idx: int):
+        self.database_idx = database_idx
+        self.__data_dict.setdefault(self.database_idx, {})
