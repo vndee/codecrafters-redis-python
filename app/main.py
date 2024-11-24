@@ -1,6 +1,6 @@
 import asyncio
 import argparse
-from typing import Tuple, Any, Dict, List
+from typing import Any, Dict
 
 from app.resp import (
     RESPParser,
