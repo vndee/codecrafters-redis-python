@@ -161,7 +161,7 @@ class RedisDataStore:
             for db, keys in data.items():
                 for key, value in keys.items():
                     expire_at = value["expire_at"]
-                    if expire_at and expire_at < time.time() * 1000:
+                    if expire_at * 1000 and expire_at < time.time() * 1000:
                         print(f"The key: {key} has expired {time.time() * 1000 - expire_at}ms ago - skipping")
                         continue
 
