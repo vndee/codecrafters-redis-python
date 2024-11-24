@@ -1,3 +1,4 @@
+import uuid
 import asyncio
 import argparse
 from enum import StrEnum, IntEnum
@@ -76,6 +77,13 @@ class RedisServer:
             repl_backlog_first_byte_offset=0,
             repl_backlog_histlen=0,
         )
+
+    def __generate_master_replid(self):
+        """
+        Generate a unique master replication ID (pseudo random alphanumeric string of 40 characters).
+        :return:
+        """
+        return uuid.uuid4().hex
 
     def handle_command(self, data: RESPObject) -> RESPObject:
         if not isinstance(data, RESPArray):
