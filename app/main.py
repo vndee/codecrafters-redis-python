@@ -73,8 +73,12 @@ class RedisServer:
                 raise ValueError(f"Could not connect to master node {replicaof}")
             else:
                 self.__replicaof = replicaof
-                self.__send_to_master(RESPArray([RESPBulkString("REPLCONF"), RESPBulkString("listening-port"), RESPBulkString(self.__replicaof.split(" ")[1])]))
-                self.__send_to_master(RESPArray([RESPBulkString("REPLCONF"), RESPBulkString("capa"), RESPBulkString("psync2")]))
+
+                replconf_listening_port = RESPArray([RESPBulkString("REPLCONF"), RESPBulkString("listening-port"), RESPBulkString(self.__replicaof.split(" ")[1])])
+                print(f"Sent {replconf_listening_port.serialize()} -> {self.__send_to_master(replconf_listening_port).serialize()}")
+
+                replconf_capa_psync2 = RESPArray([RESPBulkString("REPLCONF"), RESPBulkString("capa"), RESPBulkString("psync2")])
+                print(f"Sent {replconf_capa_psync2.serialize()} -> {self.__send_to_master(replconf_capa_psync2).serialize()}")
 
         self.__repl_info = RedisReplicationInformation(
             role=RedisReplicationRole.MASTER if replicaof is None else RedisReplicationRole.SLAVE,
