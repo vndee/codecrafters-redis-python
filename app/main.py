@@ -104,9 +104,7 @@ class RedisServer:
             client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             client.connect((master_host, int(master_port)))
             client.send(RESPArray([RESPBulkString("PING")]).serialize())
-
             response = client.recv(1024)
-            print(f"Received: {response}")
             return response == b"+PONG\r\n"
         except Exception as _:
             return False
