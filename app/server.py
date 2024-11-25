@@ -93,6 +93,10 @@ class RedisServer:
         self.__is_pending_write = False
         self.__is_write_before = False
 
+        self.__client_write_offsets: Dict[asyncio.StreamWriter, int] = {}
+        self.__replica_acks: Dict[asyncio.StreamWriter, (asyncio.StreamReader, int)] = {}
+        self.__request_acks: Dict[asyncio.StreamWriter, bool] = {}
+
     async def initialize(self):
         """
         Perform async initialization tasks.
@@ -240,18 +244,30 @@ class RedisServer:
 
     async def __propagate_to_slaves(self, data: RESPObject):
         """
-        Propagate the data to all connected slaves.
-        :param data: Data to propagate.
+        Propagate the data to all connected slaves with proper error handling.
         """
-        for slave_connection in self.__replica_acks.keys():
-            if not slave_connection.is_closing():
-                print(f"Propagating data to slave: {slave_connection.get_extra_info('peername')} - {data}")
-                self.__propagation_tasks.append(asyncio.create_task(self.__send_data(slave_connection, data)))
+        failed_replicas = []
 
-        if self.__propagation_tasks:
-            await asyncio.wait(self.__propagation_tasks)
-            self.__propagation_tasks.clear()
-            self.__is_pending_write = False
+        for replica_writer in list(self.__replica_acks.keys()):
+            if not replica_writer.is_closing():
+                print(f"Attempting to propagate data to replica: {replica_writer.get_extra_info('peername')}")
+                success = await self.__send_data(replica_writer, data)
+                if not success:
+                    print(
+                        f"Failed to send data to replica {replica_writer.get_extra_info('peername')}, marking for removal")
+                    failed_replicas.append(replica_writer)
+            else:
+                failed_replicas.append(replica_writer)
+
+        # Clean up failed replicas
+        for failed_writer in failed_replicas:
+            print(f"Removing failed replica: {failed_writer.get_extra_info('peername')}")
+            self.__replica_acks.pop(failed_writer, None)
+            try:
+                failed_writer.close()
+                await failed_writer.wait_closed()
+            except Exception as e:
+                print(f"Error closing failed replica connection: {e}")
 
     async def handle_command(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter, data: RESPObject, is_master_command: bool = False) -> None:
         if not isinstance(data, RESPArray):
@@ -291,8 +307,9 @@ class RedisServer:
                 if self.__repl_info.role == RedisReplicationRole.MASTER:
                     self.__is_pending_write = True
                     self.__is_write_before = True
-                    await self.__propagate_to_slaves(data)
                     self.__repl_info.master_repl_offset = self.__repl_info.master_repl_offset + data.bytes_length
+                    self.__client_write_offsets[writer] = self.__repl_info.master_repl_offset
+                    await self.__propagate_to_slaves(data)
 
             case RedisCommand.GET:
                 key = data.value[1].value
@@ -319,8 +336,10 @@ class RedisServer:
 
                 if self.__repl_info.role == RedisReplicationRole.MASTER:
                     if attr.lower() == "listening-port":
-                        self.__replica_acks.setdefault(writer, (reader, 0))
+                        self.__replica_acks[writer] = (reader, 0)
                         print(f"New connected slaves: {writer.get_extra_info('peername')} - listening port: {data.value[2].value}")
+                    elif attr.lower() == "ack":
+                        self.__replica_acks[writer] = (reader, int(data.value[2].value))
                     elif attr.lower() == "capa":
                         capa = data.value[2].value.lower()
                         if capa == "psync2":
@@ -332,8 +351,9 @@ class RedisServer:
                 else:
                     if attr.lower() == "getack":
                         await self.__send_data(writer, RESPArray(value=[RESPBulkString(value="REPLCONF"), RESPBulkString(value="ACK"), RESPBulkString(value=str(self.__repl_ack_offset))]))
+                        self.__request_acks[writer.get_extra_info('peername')] = False
                     elif attr.lower() == "ack":
-                        self.__replica_acks.setdefault(writer, (reader, int(data.value[2].value)))
+                        self.__replica_acks[writer] = (reader, int(data.value[2].value))
                     else:
                         raise NotImplementedError(f"REPLCONF {attr} is not implemented")
 
@@ -350,63 +370,59 @@ class RedisServer:
                 await self.__send_data(writer, rdb_content)
 
             case RedisCommand.WAIT:
-                num_replicas, timeout = int(data.value[1].value), int(data.value[2].value)
-                if not self.__is_write_before:
+                num_replicas = int(data.value[1].value)
+                timeout_ms = int(data.value[2].value)
+
+                print(f"WAIT command received: num_replicas={num_replicas}, timeout={timeout_ms}ms")
+
+                # Get the latest write offset for this client
+                client_offset = self.__client_write_offsets.get(writer, 0)
+                if client_offset == 0:
+                    print("No writes from this client, returning 0")
                     await self.__send_data(writer, RESPInteger(value=0))
                     return
 
-                t0 = asyncio.get_event_loop().time()
-                acked_replicas = 0
+                print(f"Waiting for {num_replicas} replicas to acknowledge offset {client_offset}")
+                start_time = time.monotonic()
 
                 while True:
-                    for replica_writer, (replica_reader, current_offset) in self.__replica_acks.items():
-                        if replica_writer.is_closing():
-                            continue
+                    # Get current acks
+                    active_replicas = [(w, r, o) for w, (r, o) in self.__replica_acks.items() if not w.is_closing()]
+                    acked_replicas = sum(1 for _, _, offset in active_replicas if offset >= client_offset)
 
-                        try:
-                            ack_cmd = RESPArray(
-                                value=[
-                                    RESPBulkString(value="REPLCONF", bytes_length=8),
-                                    RESPBulkString(value="GETACK", bytes_length=6),
-                                    RESPBulkString(value="*", bytes_length=1)
-                                ],
-                                bytes_length=21
-                            )
-                            replica_writer.write(ack_cmd.serialize())
-                            await replica_writer.drain()
-                            print(f"Sent ACK command to replica: {replica_writer.get_extra_info('peername')} -> {ack_cmd.serialize()}")
-
-                            elapsed_ms = (asyncio.get_event_loop().time() - t0) * 1000
-                            if timeout > 0 and elapsed_ms >= timeout:
-                                break
-
-                            remaining_timeout = max(0.1, (timeout - elapsed_ms) / 1000) if timeout > 0 else 1
-                            print(f"Wating for ACK from replica: {replica_writer.get_extra_info('peername')} - timeout: {remaining_timeout}")
-                            resp = await asyncio.wait_for(replica_reader.readline(), timeout=remaining_timeout)
-
-                            if resp:
-                                commands = self.resp_parser.parse(resp)
-                                for cmd in commands:
-                                    if cmd.type == RESPObjectType.ARRAY:
-                                        await self.handle_command(replica_reader, replica_writer, cmd)
-
-                        except Exception as e:
-                            print(f"Failed to get ACK from replica: {e}")
-                            continue
-
-                    acked_replicas = sum(1 for v in self.__replica_acks.values() if
-                                         v[1] >= self.__repl_info.master_repl_offset)
+                    print(f"Currently have {acked_replicas}/{len(active_replicas)} replicas acknowledged")
 
                     if acked_replicas >= num_replicas:
-                        break
+                        print(f"Required replicas reached: {acked_replicas}")
+                        await self.__send_data(writer, RESPInteger(value=acked_replicas))
+                        return
 
-                    elapsed_ms = (asyncio.get_event_loop().time() - t0) * 1000
-                    if timeout > 0 and elapsed_ms >= timeout:
-                        break
+                    if timeout_ms > 0:
+                        elapsed_ms = (time.monotonic() - start_time) * 1000
+                        if elapsed_ms >= timeout_ms:
+                            print(f"Timeout reached after {elapsed_ms}ms, returning current acks: {acked_replicas}")
+                            await self.__send_data(writer, RESPInteger(value=acked_replicas))
+                            return
+
+                    # Request ACKs from unacknowledged replicas
+                    for replica_writer, replica_reader, current_offset in active_replicas:
+                        print(self.__request_acks)
+                        repl_addr = replica_writer.get_extra_info('peername')
+                        if not self.__request_acks.get(repl_addr, False):
+                            print(f"Requesting ACK from replica {replica_writer.get_extra_info('peername')}")
+                            self.__request_acks[repl_addr] = True
+                            ack_cmd = RESPArray(
+                                value=[
+                                    RESPBulkString(value="REPLCONF"),
+                                    RESPBulkString(value="GETACK"),
+                                    RESPBulkString(value="*")
+                                ]
+                            )
+                            success = await self.__send_data(replica_writer, ack_cmd)
+                            if not success:
+                                print(f"Failed to send GETACK to replica {replica_writer.get_extra_info('peername')}")
 
                     await asyncio.sleep(0.1)
-
-                await self.__send_data(writer, RESPInteger(value=acked_replicas))
 
             case _:
                 await self.__send_data(writer, RESPSimpleString(value="ERR unknown command"))
@@ -414,16 +430,33 @@ class RedisServer:
         if is_master_command:
             self.__repl_ack_offset = self.__repl_ack_offset + data.bytes_length
 
-    async def __send_data(self, writer: asyncio.StreamWriter, data: RESPObject | bytes) -> None:
-        # print(f"Sending data: {data}")
-        if isinstance(data, RESPObject):
-            writer.write(data.serialize())
-        elif isinstance(data, bytes):
-            writer.write(data)
-        else:
-            raise ValueError(f"Invalid response type: {type(data)}")
+    async def __send_data(self, writer: asyncio.StreamWriter, data: RESPObject | bytes) -> bool:
+        """
+        Send data to a client/replica with error checking.
+        Returns True if data was sent successfully, False otherwise.
+        """
+        try:
+            if writer.is_closing():
+                print(f"Writer to {writer.get_extra_info('peername')} is closing, cannot send data")
+                return False
 
-        await writer.drain()
+            if isinstance(data, RESPObject):
+                serialized = data.serialize()
+            elif isinstance(data, bytes):
+                serialized = data
+            else:
+                raise ValueError(f"Invalid response type: {type(data)}")
+
+            writer.write(serialized)
+            await writer.drain()
+            print(f"Successfully sent {len(serialized)} bytes to {writer.get_extra_info('peername')}")
+            return True
+        except ConnectionError as e:
+            print(f"Connection error while sending to {writer.get_extra_info('peername')}: {e}")
+            return False
+        except Exception as e:
+            print(f"Error sending data to {writer.get_extra_info('peername')}: {e}")
+            return False
 
     async def handle_client(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
         addr = writer.get_extra_info('peername')
@@ -454,6 +487,11 @@ class RedisServer:
             print(f"Error handling client {addr}: {str(e)}")
         finally:
             print(f"Closing connection from {addr}")
+            self.__client_write_offsets.pop(writer, None)
+            if writer in self.__replica_acks:
+                print(f"Cleaning up replica connection from {writer.get_extra_info('peername')}")
+                self.__replica_acks.pop(writer)
+
             writer.close()
             try:
                 await writer.wait_closed()
