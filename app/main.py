@@ -82,6 +82,7 @@ class RedisServer:
         )
         self.__slave_connections: Set[asyncio.StreamWriter] = set()
         self.__master_connection = None
+        self.__master_listener = None
 
         self.__replicaof = replicaof
 
@@ -90,7 +91,13 @@ class RedisServer:
         Perform async initialization tasks.
         """
         if self.__replicaof:
-            await self.__ping_master_node(self.__replicaof)
+            success = await self.__ping_master_node(self.__replicaof)
+            if success:
+                reader, writer = self.__master_connection
+                self.__master_listener = asyncio.create_task(self.handle_master_message(reader, writer))
+                print(f"Connected to master: {self.__replicaof}")
+            else:
+                print(f"Failed to connect to master: {self.__replicaof}")
 
     @staticmethod
     def __generate_master_replid() -> str:
@@ -193,6 +200,29 @@ class RedisServer:
         except Exception as e:
             print(f"Connection error: {e}")
             return False
+
+    async def handle_master_message(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
+        try:
+            while True:
+                data = await reader.read(1024)
+                if not data:
+                    break
+
+                data = self.resp_parser.parse(data)
+                print(f"Received from master: {data}")
+                if isinstance(data, RESPSimpleString) and data.value == "PING":
+                    await self.__send_data(writer, RESPSimpleString("PONG"))
+                elif data.type == RESPObjectType.ARRAY:
+                    await self.handle_command(writer, data)
+                else:
+                    raise NotImplementedError(f"Unsupported command: {data}")
+
+        except Exception as e:
+            print(f"Error handling master message: {str(e)}")
+        finally:
+            print("Closing connection to master")
+            writer.close()
+            await writer.wait_closed()
 
     def __send_to_master(self, data: RESPObject) -> RESPObject:
         """
@@ -336,7 +366,7 @@ class RedisServer:
                 elif data.type == RESPObjectType.ARRAY:
                     await self.handle_command(writer, data)
                 else:
-                    raise NotImplementedError(f"Unsupported command: {data}")
+                    pass
 
         except Exception as e:
             print(f"Error handling client {addr}: {str(e)}")
@@ -360,8 +390,20 @@ class RedisServer:
         addr = server.sockets[0].getsockname()
         print(f'Serving on {addr}')
 
-        async with server:
-            await server.serve_forever()
+        try:
+            async with server:
+                await server.serve_forever()
+        finally:
+            server.close()
+            await server.wait_closed()
+
+            if self.__master_listener:
+                self.__master_listener.cancel()
+
+                try:
+                    await self.__master_listener
+                except asyncio.CancelledError:
+                    pass
 
 
 if __name__ == "__main__":
