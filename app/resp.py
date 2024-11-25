@@ -151,7 +151,82 @@ class RESPParser:
     def __init__(self, protocol_version: RESPProtocolVersion = RESPProtocolVersion.RESP2):
         self.protocol_version = protocol_version
 
-    def parse(self, data: bytes) -> Optional[RESPObject]:
+    def parse(self, data: bytes) -> List[RESPObject]:
+        """
+        Parse RESP data into a list of RESPObjects.
+        Each complete command will be one RESPObject in the list.
+        """
+        if not data:
+            return []
+
+        objects = []
+        remaining = data
+
+        while remaining:
+            try:
+                object_size = self._get_object_size(remaining)
+                if object_size <= 0:
+                    break
+
+                obj = self._parse_single(remaining[:object_size])
+                if obj:
+                    objects.append(obj)
+
+                remaining = remaining[object_size:]
+            except (ValueError, IndexError):
+                break
+
+        return objects
+
+    def _get_object_size(self, data: bytes) -> int:
+        """
+        Calculate the size of the next complete RESP object in bytes.
+        """
+        if len(data) < 4:  # Minimum valid RESP object size
+            return 0
+
+        try:
+            type_byte = data[0:1].decode()
+            resp_type = RESPObjectType(type_byte)
+
+            line_end = data.find(b'\r\n')
+            if line_end == -1:
+                return 0
+
+            if resp_type in {RESPObjectType.SIMPLE_STRING, RESPObjectType.SIMPLE_ERROR, RESPObjectType.INTEGER}:
+                return line_end + 2
+
+            elif resp_type == RESPObjectType.BULK_STRING:
+                length = int(data[1:line_end])
+                if length == -1:
+                    return line_end + 2
+                return line_end + 2 + length + 2  # First line + content + final \r\n
+
+            elif resp_type == RESPObjectType.ARRAY:
+                total_size = line_end + 2  # Size of the array header
+                elements_count = int(data[1:line_end])
+                if elements_count == 0:
+                    return total_size
+
+                remaining = data[total_size:]
+                for _ in range(elements_count):
+                    element_size = self._get_object_size(remaining)
+                    if element_size <= 0:
+                        return 0
+                    total_size += element_size
+                    remaining = remaining[element_size:]
+
+                return total_size
+
+        except (ValueError, IndexError):
+            return 0
+
+        return 0
+
+    def _parse_single(self, data: bytes) -> Optional[RESPObject]:
+        """
+        Parse a single complete RESP object.
+        """
         if not data:
             return None
 
@@ -182,15 +257,19 @@ class RESPParser:
                     return RESPArray([])
 
                 elements = []
-                current_data = b'\r\n'.join(lines[1:])
+                current_data = data[data.find(b'\r\n') + 2:]
                 for _ in range(length):
-                    element = self.parse(current_data)
+                    element_size = self._get_object_size(current_data)
+                    if element_size <= 0:
+                        break
+                    element = self._parse_single(current_data[:element_size])
                     if element:
                         elements.append(element)
-                        current_data = current_data[len(element.serialize()):]
+                    current_data = current_data[element_size:]
                 return RESPArray(elements)
 
         except (ValueError, IndexError) as e:
-            raise ValueError(f"Invalid RESP data: {str(e)}")
+            print(f"Error parsing RESP data: {e}")
+            return None
 
         return None

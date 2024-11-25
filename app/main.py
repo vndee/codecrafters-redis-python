@@ -107,15 +107,6 @@ class RedisServer:
         """
         return uuid.uuid4().hex
 
-    def __send_socket(self, client: socket.socket, data: RESPObject) -> RESPObject:
-        """
-        Send data to the client socket.
-        :param client: Client socket.
-        :param data: Data to send.
-        """
-        client.send(data.serialize())
-        return self.resp_parser.parse(client.recv(1024))
-
     async def __ping_master_node(self, master_address: str) -> bool:
         """
         Ping the master node asynchronously to check if it is alive.
@@ -209,13 +200,15 @@ class RedisServer:
                     break
 
                 print(f"Received from master: {data}")
-                data = self.resp_parser.parse(data)
-                if isinstance(data, RESPSimpleString) and data.value == "PING":
-                    await self.__send_data(writer, RESPSimpleString("PONG"))
-                elif data.type == RESPObjectType.ARRAY:
-                    await self.handle_command(writer, data, True)
-                else:
-                    raise NotImplementedError(f"Unsupported command: {data}")
+                commands = self.resp_parser.parse(data)
+
+                for data in commands:
+                    if isinstance(data, RESPSimpleString) and data.value == "PING":
+                        await self.__send_data(writer, RESPSimpleString("PONG"))
+                    elif data.type == RESPObjectType.ARRAY:
+                        await self.handle_command(writer, data, True)
+                    else:
+                        raise NotImplementedError(f"Unsupported command: {data}")
 
         except Exception as e:
             print(f"Error handling master message: {str(e)}")
@@ -223,22 +216,6 @@ class RedisServer:
             print("Closing connection to master")
             writer.close()
             await writer.wait_closed()
-
-    def __send_to_master(self, data: RESPObject) -> RESPObject:
-        """
-        Send the data to the master node.
-        :param data: Data to send.
-        """
-        master_host, master_port = self.__replicaof.split(" ")
-        try:
-            client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            client.connect((master_host, int(master_port)))
-            client.send(data.serialize())
-            response = client.recv(1024)
-            return self.resp_parser.parse(response)
-        except Exception as e:
-            print(f"Error sending data to master: {str(e)}")
-            return RESPSimpleString("ERR error sending data to master")
 
     async def __propagate_to_slaves(self, data: RESPObject):
         """
@@ -359,17 +336,18 @@ class RedisServer:
                 if not data:
                     break
 
-                data = self.resp_parser.parse(data)
+                commands = self.resp_parser.parse(data)
                 print(f"Received {data} from {addr}")
 
-                if isinstance(data, RESPSimpleString) and data.value == "PING":
-                    response = b"+PONG\r\n"
-                    writer.write(response)
-                    await writer.drain()
-                elif data.type == RESPObjectType.ARRAY:
-                    await self.handle_command(writer, data)
-                else:
-                    print(f"Received unknown command: {data.serialize()}")
+                for data in commands:
+                    if isinstance(data, RESPSimpleString) and data.value == "PING":
+                        response = b"+PONG\r\n"
+                        writer.write(response)
+                        await writer.drain()
+                    elif data.type == RESPObjectType.ARRAY:
+                        await self.handle_command(writer, data)
+                    else:
+                        print(f"Received unknown command: {data.serialize()}")
 
         except Exception as e:
             print(f"Error handling client {addr}: {str(e)}")
