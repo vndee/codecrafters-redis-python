@@ -3,7 +3,7 @@ import uuid
 import asyncio
 import argparse
 from enum import StrEnum
-from typing import Any, Dict
+from typing import Any, Dict, List
 from dataclasses import dataclass
 
 from app.resp import (
@@ -75,7 +75,6 @@ class RedisServer:
                 print(f"Connected to master node {replicaof}")
                 self.__replicaof = replicaof
 
-
         self.__repl_info = RedisReplicationInformation(
             role=RedisReplicationRole.MASTER if replicaof is None else RedisReplicationRole.SLAVE,
             connected_slaves=0,
@@ -87,6 +86,7 @@ class RedisServer:
             repl_backlog_first_byte_offset=0,
             repl_backlog_histlen=0,
         )
+        self.__slave_address = []
 
     @staticmethod
     def __generate_master_replid() -> str:
@@ -154,17 +154,17 @@ class RedisServer:
             print(f"Error sending data to master: {str(e)}")
             return RESPSimpleString("ERR error sending data to master")
 
-    def handle_command(self, data: RESPObject) -> RESPObject:
+    def handle_command(self, data: RESPObject) -> List[RESPObject]:
         if not isinstance(data, RESPArray):
-            return RESPSimpleString("ERR unknown command")
+            return [RESPSimpleString("ERR unknown command")]
 
         command = data.value[0].value.lower()
         match command:
             case RedisCommand.PING:
-                return RESPSimpleString("PONG")
+                return [RESPSimpleString("PONG")]
 
             case RedisCommand.ECHO:
-                return RESPBulkString(data.value[1].value)
+                return [RESPBulkString(data.value[1].value)]
 
             case RedisCommand.SET:
                 key = data.value[1].value
@@ -181,34 +181,42 @@ class RedisServer:
                         args[arg_name] = True
                         i = i + 1
                     else:
-                        return RESPSimpleString("ERR syntax error")
+                        return [RESPSimpleString("ERR syntax error")]
 
-                return RESPSimpleString(self.__data_store.set(key, value, **args))
+                return [RESPSimpleString(self.__data_store.set(key, value, **args))]
 
             case RedisCommand.GET:
                 key = data.value[1].value
-                return RESPBulkString(self.__data_store.get(key))
+                return [RESPBulkString(self.__data_store.get(key))]
 
             case RedisCommand.CONFIG:
                 method = data.value[1].value.lower()
                 if method == RedisCommand.GET:
                     param = data.value[2].value.lower()
                     if param == "dir":
-                        return RESPArray([RESPBulkString("dir"), RESPBulkString(self.__data_store.dir)])
+                        return [RESPArray([RESPBulkString("dir"), RESPBulkString(self.__data_store.dir)])]
                     if param == "dbfilename":
-                        return RESPArray([RESPBulkString("dbfilename"), RESPBulkString(self.__data_store.dbfilename)])
-                    return RESPSimpleString("ERR unknown parameter")
+                        return [RESPArray([RESPBulkString("dbfilename"), RESPBulkString(self.__data_store.dbfilename)])]
+                    return [RESPSimpleString("ERR unknown parameter")]
 
             case RedisCommand.KEYS:
                 pattern = data.value[1].value
-                return RESPArray([RESPBulkString(key) for key in self.__data_store.keys(pattern)])
+                return [RESPArray([RESPBulkString(key) for key in self.__data_store.keys(pattern)])]
 
             case RedisCommand.INFO:
-                return self.__repl_info.serialize()
+                return [self.__repl_info.serialize()]
 
             case RedisCommand.REPLCONF:
                 if self.__repl_info.role == RedisReplicationRole.MASTER:
-                    return RESPSimpleString("OK")
+                    attr = data.value[1].value.lower()
+                    if attr == "listening-port":
+                        port = int(data.value[2].value)
+                        self.__slave_address.append((self.host, port))
+                        self.__repl_info.connected_slaves = len(self.__slave_address)
+                    else:
+                        raise NotImplementedError(f"REPLCONF {attr} is not implemented")
+
+                    return [RESPSimpleString("OK")]
 
             case RedisCommand.PSYNC:
                 repl_id = data.value[1].value
@@ -217,9 +225,10 @@ class RedisServer:
                 if repl_id != "?" or repl_offset != -1:
                     raise NotImplementedError("Only PSYNC with ? and -1 is supported")
 
-                return RESPSimpleString(f"FULLRESYNC {self.__repl_info.master_replid} {self.__repl_info.master_repl_offset}")
+                # return RESPSimpleString(f"FULLRESYNC {self.__repl_info.master_replid} {self.__repl_info.master_repl_offset}")
+                # TODO: Implement PSYNC response and then send the rdb file in bytes to the slave
             case _:
-                return RESPSimpleString("ERR unknown command")
+                return [RESPSimpleString("ERR unknown command")]
 
     async def handle_client(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
         addr = writer.get_extra_info('peername')
@@ -236,13 +245,15 @@ class RedisServer:
 
                 if isinstance(data, RESPSimpleString) and data.value == "PING":
                     response = b"+PONG\r\n"
+                    writer.write(response)
+                    await writer.drain()
                 elif data.type == RESPObjectType.ARRAY:
-                    response = self.handle_command(data).serialize()
+                    responses = self.handle_command(data)
+                    for response in responses:
+                        writer.write(response.serialize())
+                        await writer.drain()
                 else:
-                    response = b"-ERR unknown command\r\n"
-
-                writer.write(response)
-                await writer.drain()
+                    raise NotImplementedError(f"Unsupported command: {data}")
 
         except Exception as e:
             print(f"Error handling client {addr}: {str(e)}")
