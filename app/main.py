@@ -155,7 +155,23 @@ class RedisServer:
             print(f"Error sending data to master: {str(e)}")
             return RESPSimpleString("ERR error sending data to master")
 
-    def handle_command(self, data: RESPObject) -> List[RESPObject]:
+    def __propagate_to_slaves(self, data: RESPObject):
+        """
+        Propagate the data to all connected slaves.
+        :param data: Data to propagate.
+        """
+        for slave_address in self.__slave_address:
+            try:
+                slave_host, slave_port = slave_address
+                client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                client.connect((slave_host, slave_port))
+                client.send(data.serialize())
+                client.recv(1024)
+                client.close()
+            except Exception as e:
+                print(f"Error sending data to slave {slave_address}: {str(e)}")
+
+    def handle_command(self, client_address, data: RESPObject) -> List[RESPObject]:
         if not isinstance(data, RESPArray):
             return [RESPSimpleString("ERR unknown command")]
 
@@ -184,7 +200,11 @@ class RedisServer:
                     else:
                         return [RESPSimpleString("ERR syntax error")]
 
-                return [RESPSimpleString(self.__data_store.set(key, value, **args))]
+                resp = [RESPSimpleString(self.__data_store.set(key, value, **args))]
+                if self.__repl_info.role == RedisReplicationRole.MASTER:
+                    self.__propagate_to_slaves(data)
+
+                return resp
 
             case RedisCommand.GET:
                 key = data.value[1].value
@@ -211,13 +231,13 @@ class RedisServer:
                 if self.__repl_info.role == RedisReplicationRole.MASTER:
                     attr = data.value[1].value.lower()
                     if attr == "listening-port":
-                        port = int(data.value[2].value)
-                        self.__slave_address.append((self.host, port))
-                        self.__repl_info.connected_slaves = len(self.__slave_address)
+                        pass
                     elif attr == "capa":
                         capa = data.value[2].value.lower()
                         if capa == "psync2":
-                            pass
+                            self.__slave_address.append(client_address)
+                            self.__repl_info.connected_slaves = len(self.__slave_address)
+                            print(f"Connected slaves: {client_address}")
                     else:
                         raise NotImplementedError(f"REPLCONF {attr} is not implemented")
 
@@ -257,7 +277,7 @@ class RedisServer:
                     writer.write(response)
                     await writer.drain()
                 elif data.type == RESPObjectType.ARRAY:
-                    responses = self.handle_command(data)
+                    responses = self.handle_command(addr, data)
                     for response in responses:
                         if isinstance(response, RESPObject):
                             writer.write(response.serialize())
