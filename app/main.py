@@ -211,6 +211,9 @@ class RedisServer:
                         self.__repl_ack_offset = self.__repl_ack_offset + len(data)
                     elif cmd.type == RESPObjectType.ARRAY:
                         await self.handle_command(writer, cmd, True)
+                    elif cmd.type == RESPObjectType.BULK_BYTES:
+                        # TODO: Handle RDB data
+                        pass
                     else:
                         raise NotImplementedError(f"Unsupported command: {cmd}")
 
