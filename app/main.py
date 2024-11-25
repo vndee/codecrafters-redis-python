@@ -163,8 +163,8 @@ class RedisServer:
         """
         for slave_connection in self.__slave_connections:
             try:
+                print(f"Propagating data to slave: {slave_connection.get_extra_info('peername')} - {data}")
                 await self.__send_data(slave_connection, data)
-                print(f"Propagated data to slave: {slave_connection.get_extra_info('peername')} - {data}")
             except Exception as e:
                 print(f"Error sending data to slave: {str(e)}")
 
