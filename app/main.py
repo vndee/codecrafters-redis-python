@@ -184,6 +184,7 @@ class RedisServer:
                 remaining_data = parts[2][rdb_length:]
                 commands = self.resp_parser.parse(remaining_data)
 
+                print(f"Initial commands: {commands}")
                 for data in commands:
                     if data.type == RESPObjectType.ARRAY:
                         await self.handle_command(writer, data, True)
