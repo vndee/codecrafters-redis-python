@@ -295,9 +295,9 @@ class RedisServer:
                 await self.__send_data(writer, self.__repl_info.serialize())
 
             case RedisCommand.REPLCONF:
+                attr = data.value[1].value.lower()
+
                 if self.__repl_info.role == RedisReplicationRole.MASTER:
-                    attr = data.value[1].value.lower()
-                    print(attr)
                     if attr.lower() == "listening-port":
                         self.__slave_connections.add(writer)
                         print(f"New connected slaves: {writer.get_extra_info('peername')} - listening port: {data.value[2].value}")
@@ -305,12 +305,13 @@ class RedisServer:
                         capa = data.value[2].value.lower()
                         if capa == "psync2":
                             pass
-                    elif attr.lower() == "getack":
-                        await self.__send_data(writer, RESPArray([RESPBulkString("REPLCONF"), RESPBulkString("ACK"), RESPBulkString("0")]))
                     else:
                         raise NotImplementedError(f"REPLCONF {attr} is not implemented")
 
                     await self.__send_data(writer, RESPSimpleString("OK"))
+                else:
+                    if attr.lower() == "getack":
+                        await self.__send_data(writer, RESPArray([RESPBulkString("REPLCONF"), RESPBulkString("ACK"), RESPBulkString("0")]))
 
             case RedisCommand.PSYNC:
                 repl_id = data.value[1].value
