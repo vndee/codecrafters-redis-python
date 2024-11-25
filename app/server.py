@@ -398,6 +398,8 @@ class RedisServer:
                     if acked_replicas >= num_replicas:
                         print(f"Required replicas reached: {acked_replicas}")
                         await self.__send_data(writer, RESPInteger(value=acked_replicas))
+                        for replica_writer, replica_reader, current_offset in active_replicas:
+                            self.__request_acks[replica_writer.get_extra_info('peername')] = False
                         return
 
                     if timeout_ms > 0:
@@ -405,6 +407,9 @@ class RedisServer:
                         if elapsed_ms >= timeout_ms:
                             print(f"Timeout reached after {elapsed_ms}ms, returning current acks: {acked_replicas}")
                             await self.__send_data(writer, RESPInteger(value=acked_replicas))
+                            # reset self.__request_acks
+                            for replica_writer, replica_reader, current_offset in active_replicas:
+                                self.__request_acks[replica_writer.get_extra_info('peername')] = False
                             return
 
                     # Request ACKs from unacknowledged replicas
