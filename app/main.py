@@ -210,9 +210,11 @@ class RedisServer:
                     if isinstance(cmd, RESPSimpleString) and cmd.value == "PING":
                         self.__repl_ack_offset = self.__repl_ack_offset + len(data)
                     elif cmd.type == RESPObjectType.ARRAY:
-                        await self.handle_command(writer, cmd, len(data), True)
+                        await self.handle_command(writer, cmd, True)
                     else:
                         raise NotImplementedError(f"Unsupported command: {cmd}")
+
+                self.__repl_ack_offset = self.__repl_ack_offset + len(data)
 
         except Exception as e:
             print(f"Error handling master message: {str(e)}")
@@ -233,7 +235,7 @@ class RedisServer:
             except Exception as e:
                 print(f"Error sending data to slave: {str(e)}")
 
-    async def handle_command(self, writer: asyncio.StreamWriter, data: RESPObject, data_byte_size: int, is_master_command: bool = False) -> None:
+    async def handle_command(self, writer: asyncio.StreamWriter, data: RESPObject, is_master_command: bool = False) -> None:
         if not isinstance(data, RESPArray):
             await self.__send_data(writer, RESPSimpleString("ERR unknown command"))
 
@@ -327,8 +329,6 @@ class RedisServer:
             case _:
                 await self.__send_data(writer, RESPSimpleString("ERR unknown command"))
 
-        self.__repl_ack_offset = self.__repl_ack_offset + data_byte_size
-
     async def __send_data(self, writer: asyncio.StreamWriter, data: RESPObject | bytes) -> None:
         print(f"Sending data: {data}")
         if isinstance(data, RESPObject):
@@ -359,9 +359,11 @@ class RedisServer:
                         writer.write(response)
                         await writer.drain()
                     elif cmd.type == RESPObjectType.ARRAY:
-                        await self.handle_command(writer, cmd, len(data))
+                        await self.handle_command(writer, cmd)
                     else:
                         print(f"Received unknown command: {cmd.serialize()}")
+
+                self.__repl_ack_offset = self.__repl_ack_offset + len(data)
 
         except Exception as e:
             print(f"Error handling client {addr}: {str(e)}")
