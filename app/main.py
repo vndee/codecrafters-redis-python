@@ -13,7 +13,7 @@ from app.resp import (
     RESPSimpleString,
     RESPBulkString,
     RESPArray,
-    RESPBytes
+    RESPBytesLength
 )
 from app.data import RedisCommand, RedisDataStore
 
@@ -230,9 +230,11 @@ class RedisServer:
                 if repl_id != "?" or repl_offset != -1:
                     raise NotImplementedError("Only PSYNC with ? and -1 is supported")
 
+                rdb_content = self.__data_store.dump_to_rdb()
                 return [
                     RESPSimpleString(f"FULLRESYNC {self.__repl_info.master_replid} {self.__repl_info.master_repl_offset}"),
-                    RESPBytes(self.__data_store.dump_to_rdb())
+                    RESPBytesLength(len(rdb_content)),
+                    rdb_content
                 ]
             case _:
                 return [RESPSimpleString("ERR unknown command")]
@@ -257,7 +259,13 @@ class RedisServer:
                 elif data.type == RESPObjectType.ARRAY:
                     responses = self.handle_command(data)
                     for response in responses:
-                        writer.write(response.serialize())
+                        if isinstance(response, RESPObject):
+                            writer.write(response.serialize())
+                        elif isinstance(response, bytes):
+                            writer.write(response)
+                        else:
+                            raise ValueError(f"Invalid response type: {type(response)}")
+
                         await writer.drain()
                 else:
                     raise NotImplementedError(f"Unsupported command: {data}")
