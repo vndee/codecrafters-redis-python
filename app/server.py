@@ -361,8 +361,7 @@ class RedisServer:
                 async def wait_for_acks() -> None:
                     t0 = time.time()
                     while True:
-                        print(self.__repl_info.master_repl_offset, self.__replica_acks)
-                        if self.__repl_info.master_repl_offset > 0:
+                        if self.__propagation_tasks.__len__() > 0:
                             await self.__get_replica_acks()
 
                         acked_replicas = sum(1 for offset in self.__replica_acks.values() if
