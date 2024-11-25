@@ -425,6 +425,8 @@ class RedisServer:
 
                     await asyncio.sleep(0.1)
 
+                await self.__send_data(writer, RESPInteger(value=0))
+
             case _:
                 await self.__send_data(writer, RESPSimpleString(value="ERR unknown command"))
 
