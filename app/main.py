@@ -181,16 +181,16 @@ class RedisServer:
                 rdb_length = int(parts[1][1:])
                 rdb_data = parts[2][:rdb_length]
 
-                remaining_data = parts[2][rdb_length:] + b'\r\n' + b'\r\n'.join(parts[3:])
-                print(f"Remaining data: {remaining_data}")
-                commands = self.resp_parser.parse(remaining_data)
+                if len(parts[2]) > rdb_length:
+                    remaining_data = parts[2][rdb_length:] + b'\r\n' + b'\r\n'.join(parts[3:])
+                    print(f"Remaining data: {remaining_data}")
+                    commands = self.resp_parser.parse(remaining_data)
 
-                print(f"Initial commands: {commands}")
-                for data in commands:
-                    if data.type == RESPObjectType.ARRAY:
-                        await self.handle_command(writer, data, True)
-                    else:
-                        raise NotImplementedError(f"Unsupported command: {data}")
+                    for data in commands:
+                        if data.type == RESPObjectType.ARRAY:
+                            await self.handle_command(writer, data, True)
+                        else:
+                            raise NotImplementedError(f"Unsupported command: {data}")
 
             # Store the connection
             self.__master_connection = (reader, writer)
@@ -241,6 +241,7 @@ class RedisServer:
         if not isinstance(data, RESPArray):
             await self.__send_data(writer, RESPSimpleString("ERR unknown command"))
 
+        print(f"Handling command: {data} - is_master_command: {is_master_command}")
         command = data.value[0].value.lower()
         match command:
             case RedisCommand.PING:
