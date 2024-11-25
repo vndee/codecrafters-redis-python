@@ -83,6 +83,10 @@ class RESPObject(ABC):
         """Convert the object to RESP wire format"""
         pass
 
+    @property
+    def serialized_bytes_length(self) -> int:
+        return len(self.serialize())
+
 
 @dataclass
 class RESPBytesLength(RESPObject):

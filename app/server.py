@@ -303,7 +303,7 @@ class RedisServer:
                 if self.__repl_info.role == RedisReplicationRole.MASTER:
                     self.__is_pending_write = True
                     self.__is_write_before = True
-                    self.__repl_info.master_repl_offset = self.__repl_info.master_repl_offset + data.bytes_length
+                    self.__repl_info.master_repl_offset = self.__repl_info.master_repl_offset + data.serialized_bytes_length
                     self.__client_write_offsets[writer] = self.__repl_info.master_repl_offset
                     await self.__propagate_to_slaves(data)
 
@@ -374,10 +374,10 @@ class RedisServer:
                 num_replicas = int(data.value[1].value)
                 timeout_ms = int(data.value[2].value)
 
-                print(f"WAIT command received: num_replicas={num_replicas}, timeout={timeout_ms}ms")
+                print(f"WAIT command received: num_replicas={num_replicas}, timeout={timeout_ms}ms, master_offset={self.__repl_info.master_repl_offset}")
 
                 # Get the latest write offset for this client
-                client_offset = self.__client_write_offsets.get(writer, 0)
+                client_offset = self.__repl_info.master_repl_offset
                 if client_offset == 0:
                     print("No writes from this client, returning 0")
                     await self.__send_data(writer, RESPInteger(value=0))
@@ -424,8 +424,6 @@ class RedisServer:
                                 print(f"Failed to send GETACK to replica {replica_writer.get_extra_info('peername')}")
 
                     await asyncio.sleep(0.1)
-
-                await self.__send_data(writer, RESPInteger(value=0))
 
             case _:
                 await self.__send_data(writer, RESPSimpleString(value="ERR unknown command"))
