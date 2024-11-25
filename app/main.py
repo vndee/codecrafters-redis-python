@@ -186,7 +186,7 @@ class RedisServer:
                     rdb_content = parts[2]
                     print(f"RDB length: {rdb_length}")
                     print(f"RDB content: {rdb_content}")
-                    self.__data_store.load_from_rdb_bytes(rdb_content)
+                    # TODO: Parse RDB content
                 else:
                     await self.handle_command(writer, self.resp_parser.parse(line))
 
