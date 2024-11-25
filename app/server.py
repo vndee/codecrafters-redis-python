@@ -387,7 +387,7 @@ class RedisServer:
             self.__repl_ack_offset = self.__repl_ack_offset + data.bytes_length
 
     async def __send_data(self, writer: asyncio.StreamWriter, data: RESPObject | bytes) -> None:
-        print(f"Sending data: {data}")
+        # print(f"Sending data: {data}")
         if isinstance(data, RESPObject):
             writer.write(data.serialize())
         elif isinstance(data, bytes):
