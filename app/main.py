@@ -3,7 +3,7 @@ import uuid
 import asyncio
 import argparse
 from enum import StrEnum
-from typing import Any, Dict, Set
+from typing import Any, Dict, Set, Optional
 from dataclasses import dataclass
 
 from app.resp import (
@@ -69,13 +69,6 @@ class RedisServer:
 
         self.__data_store = RedisDataStore(dir=dir, dbfilename=dbfilename)
 
-        if replicaof is not None:
-            if not self.__ping_master_node(replicaof):
-                raise ValueError(f"Could not connect to master node {replicaof}")
-            else:
-                print(f"Connected to master node {replicaof}")
-                self.__replicaof = replicaof
-
         self.__repl_info = RedisReplicationInformation(
             role=RedisReplicationRole.MASTER if replicaof is None else RedisReplicationRole.SLAVE,
             connected_slaves=0,
@@ -89,6 +82,10 @@ class RedisServer:
         )
         self.__slave_connections: Set[asyncio.StreamWriter] = set()
         self.__master_connection = None
+
+        self.__replicaof = replicaof
+        if replicaof:
+            asyncio.create_task(self.__ping_master_node(replicaof))
 
     @staticmethod
     def __generate_master_replid() -> str:
@@ -106,9 +103,6 @@ class RedisServer:
         """
         client.send(data.serialize())
         return self.resp_parser.parse(client.recv(1024))
-
-    import asyncio
-    from typing import Optional
 
     async def __ping_master_node(self, master_address: str) -> bool:
         """
