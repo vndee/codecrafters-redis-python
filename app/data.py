@@ -22,6 +22,7 @@ class RedisCommand(StrEnum):
     REPLCONF = "replconf"
     PSYNC = "psync"
     FULLRESYNC = "fullresync"
+    WAIT = "wait"
 
 
 RedisString = str

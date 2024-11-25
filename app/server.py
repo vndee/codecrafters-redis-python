@@ -12,7 +12,8 @@ from app.resp import (
     RESPSimpleString,
     RESPBulkString,
     RESPArray,
-    RESPBytesLength
+    RESPBytesLength,
+    RESPInteger
 )
 from app.data import RedisCommand, RedisDataStore
 
@@ -335,6 +336,10 @@ class RedisServer:
                 await self.__send_data(writer, RESPSimpleString(value=f"FULLRESYNC {self.__repl_info.master_replid} {self.__repl_info.master_repl_offset}"))
                 await self.__send_data(writer, RESPBytesLength(value=len(rdb_content)))
                 await self.__send_data(writer, rdb_content)
+
+            case RedisCommand.WAIT:
+                num_replicas, timeout = int(data.value[1].value), int(data.value[2].value)
+                await self.__send_data(writer, RESPInteger(value=0))
 
             case _:
                 await self.__send_data(writer, RESPSimpleString(value="ERR unknown command"))
