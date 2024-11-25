@@ -356,14 +356,16 @@ class RedisServer:
 
             case RedisCommand.WAIT:
                 num_replicas, timeout = int(data.value[1].value), int(data.value[2].value)
+                if self.__propagation_tasks.__len__() == 0:
+                    await self.__send_data(writer, RESPInteger(value=0))
+                    return
+
                 ack_future = asyncio.Future()
 
                 async def wait_for_acks() -> None:
                     t0 = time.time()
                     while True:
-                        if self.__propagation_tasks.__len__() > 0:
-                            await self.__get_replica_acks()
-
+                        await self.__get_replica_acks()
                         acked_replicas = sum(1 for offset in self.__replica_acks.values() if
                                              offset >= self.__repl_info.master_repl_offset)
 
@@ -379,7 +381,6 @@ class RedisServer:
 
                 _ = asyncio.create_task(wait_for_acks())
                 ack_count = await ack_future
-                print(f"Waited for {timeout} seconds and got {ack_count} ACKs")
                 await self.__send_data(writer, RESPInteger(value=ack_count))
 
             case _:
