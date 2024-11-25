@@ -1,4 +1,5 @@
 import uuid
+import time
 import asyncio
 import argparse
 from enum import StrEnum
@@ -88,6 +89,8 @@ class RedisServer:
         self.__repl_ack_offset = 0
 
         self.__replicaof = replicaof
+        self.__propagation_tasks = []
+        self.__replica_acks = {}
 
     async def initialize(self):
         """
@@ -240,11 +243,22 @@ class RedisServer:
         :param data: Data to propagate.
         """
         for slave_connection in self.__slave_connections:
-            try:
+            if not slave_connection.is_closing():
                 print(f"Propagating data to slave: {slave_connection.get_extra_info('peername')} - {data}")
-                await self.__send_data(slave_connection, data)
-            except Exception as e:
-                print(f"Error sending data to slave: {str(e)}")
+                self.__propagation_tasks.append(asyncio.create_task(self.__send_data(slave_connection, data)))
+
+        if self.__propagation_tasks:
+            await asyncio.wait(self.__propagation_tasks)
+            self.__propagation_tasks.clear()
+
+    async def __get_replica_acks(self) -> None:
+        """
+        Get the ACKs from all connected replicas.
+        """
+        while True:
+            for slave_connection in self.__slave_connections:
+                if not slave_connection.is_closing():
+                    await self.__send_data(slave_connection, RESPArray(value=[RESPBulkString(value="REPLCONF"), RESPBulkString(value="GETACK")]))
 
     async def handle_command(self, writer: asyncio.StreamWriter, data: RESPObject, is_master_command: bool = False) -> None:
         if not isinstance(data, RESPArray):
@@ -283,6 +297,7 @@ class RedisServer:
 
                 if self.__repl_info.role == RedisReplicationRole.MASTER:
                     await self.__propagate_to_slaves(data)
+                    self.__repl_info.master_repl_offset = self.__repl_info.master_repl_offset + data.bytes_length
 
             case RedisCommand.GET:
                 key = data.value[1].value
@@ -322,6 +337,8 @@ class RedisServer:
                 else:
                     if attr.lower() == "getack":
                         await self.__send_data(writer, RESPArray(value=[RESPBulkString(value="REPLCONF"), RESPBulkString(value="ACK"), RESPBulkString(value=str(self.__repl_ack_offset))]))
+                    elif attr.lower() == "ack":
+                        self.__replica_acks[writer] = int(data.value[2].value)
                     else:
                         raise NotImplementedError(f"REPLCONF {attr} is not implemented")
 
@@ -339,7 +356,29 @@ class RedisServer:
 
             case RedisCommand.WAIT:
                 num_replicas, timeout = int(data.value[1].value), int(data.value[2].value)
-                await self.__send_data(writer, RESPInteger(value=len(self.__slave_connections)))
+                ack_future = asyncio.Future()
+
+                async def wait_for_acks() -> None:
+                    t0 = time.time()
+                    while True:
+                        await self.__get_replica_acks()
+
+                        acked_replicas = sum(1 for offset in self.__replica_acks.values() if
+                                             offset >= self.__repl_info.master_repl_offset)
+
+                        if acked_replicas >= num_replicas:
+                            ack_future.set_result(acked_replicas)
+                            return
+
+                        if timeout > 0 and asyncio.get_event_loop().time() - t0 > timeout:
+                            ack_future.set_result(acked_replicas)
+                            return
+
+                        await asyncio.sleep(0.1)
+
+                wait_task = asyncio.create_task(wait_for_acks())
+                ack_count = await ack_future
+                await self.__send_data(writer, RESPInteger(value=ack_count))
 
             case _:
                 await self.__send_data(writer, RESPSimpleString(value="ERR unknown command"))
