@@ -379,6 +379,7 @@ class RedisServer:
 
                 _ = asyncio.create_task(wait_for_acks())
                 ack_count = await ack_future
+                print(f"Waited for {timeout} seconds and got {ack_count} ACKs")
                 await self.__send_data(writer, RESPInteger(value=ack_count))
 
             case _:
