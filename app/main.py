@@ -210,6 +210,14 @@ class RedisServer:
                 if self.__repl_info.role == RedisReplicationRole.MASTER:
                     return RESPSimpleString("OK")
 
+            case RedisCommand.PSYNC:
+                repl_id = data.value[1].value
+                repl_offset = int(data.value[2].value)
+
+                if repl_id != "?" or repl_offset != -1:
+                    raise NotImplementedError("Only PSYNC with ? and -1 is supported")
+
+                return RESPSimpleString(f"FULLRESYNC {self.__repl_info.master_replid} {self.__repl_info.master_repl_offset}")
             case _:
                 return RESPSimpleString("ERR unknown command")
 

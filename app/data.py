@@ -20,6 +20,7 @@ class RedisCommand(StrEnum):
     KEYS = "keys"
     INFO = "info"
     REPLCONF = "replconf"
+    PSYNC = "psync"
 
 
 RedisString = str
