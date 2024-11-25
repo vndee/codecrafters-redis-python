@@ -231,13 +231,13 @@ class RedisServer:
                 if self.__repl_info.role == RedisReplicationRole.MASTER:
                     attr = data.value[1].value.lower()
                     if attr == "listening-port":
-                        pass
+                        self.__slave_address.append((client_address[0], int(data.value[2].value)))
+                        self.__repl_info.connected_slaves = len(self.__slave_address)
+                        print(f"Connected slaves: {client_address}")
                     elif attr == "capa":
                         capa = data.value[2].value.lower()
                         if capa == "psync2":
-                            self.__slave_address.append(client_address)
-                            self.__repl_info.connected_slaves = len(self.__slave_address)
-                            print(f"Connected slaves: {client_address}")
+                            pass
                     else:
                         raise NotImplementedError(f"REPLCONF {attr} is not implemented")
 
