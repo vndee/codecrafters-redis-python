@@ -373,6 +373,11 @@ class RedisServer:
                 await self.__send_data(writer, rdb_content)
 
             case RedisCommand.WAIT:
+                if not self.__is_write_before:
+                    print("No writes from this client, returning 0")
+                    await self.__send_data(writer, RESPInteger(value=0))
+                    return
+
                 num_replicas = int(data.value[1].value)
                 timeout_ms = int(data.value[2].value)
 
@@ -380,10 +385,6 @@ class RedisServer:
 
                 # Get the latest write offset for this client
                 client_offset = self.__repl_info.master_repl_offset
-                if client_offset == 0:
-                    print("No writes from this client, returning 0")
-                    await self.__send_data(writer, RESPInteger(value=0))
-                    return
 
                 print(f"Waiting for {num_replicas} replicas to acknowledge offset {client_offset}")
                 start_time = time.monotonic()
@@ -407,7 +408,6 @@ class RedisServer:
                         if elapsed_ms >= timeout_ms:
                             print(f"Timeout reached after {elapsed_ms}ms, returning current acks: {acked_replicas}")
                             await self.__send_data(writer, RESPInteger(value=acked_replicas))
-                            # reset self.__request_acks
                             for replica_writer, replica_reader, current_offset in active_replicas:
                                 self.__request_acks[replica_writer.get_extra_info('peername')] = False
                             return
