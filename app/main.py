@@ -179,9 +179,13 @@ class RedisServer:
                     master_replid, master_repl_offset = parts[0].split(b' ')[1:]
                     self.__repl_info.master_replid = master_replid.decode()
                     self.__repl_info.master_repl_offset = int(master_repl_offset)
+                    print(f"Master replication ID: {self.__repl_info.master_replid}")
+                    print(f"Master replication offset: {self.__repl_info.master_repl_offset}")
 
                     rdb_length = int(parts[1])
                     rdb_content = parts[2]
+                    print(f"RDB length: {rdb_length}")
+                    print(f"RDB content: {rdb_content}")
                     self.__data_store.load_from_rdb_bytes(rdb_content)
                 else:
                     await self.handle_command(writer, self.resp_parser.parse(line))
