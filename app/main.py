@@ -88,6 +88,7 @@ class RedisServer:
             repl_backlog_histlen=0,
         )
         self.__slave_address = []
+        self.__slave_connections = []
 
     @staticmethod
     def __generate_master_replid() -> str:
@@ -155,23 +156,30 @@ class RedisServer:
             print(f"Error sending data to master: {str(e)}")
             return RESPSimpleString("ERR error sending data to master")
 
-    def __propagate_to_slaves(self, data: RESPObject):
+    async def __propagate_to_slaves(self, data: RESPObject):
         """
         Propagate the data to all connected slaves.
         :param data: Data to propagate.
         """
-        for slave_address in self.__slave_address:
-            try:
-                slave_host, slave_port = slave_address
-                client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                client.connect((slave_host, slave_port))
-                client.send(data.serialize())
-                client.recv(1024)
-                client.close()
-            except Exception as e:
-                print(f"Error sending data to slave {slave_address}: {str(e)}")
+        # for slave_address in self.__slave_address:
+        #     try:
+        #         slave_host, slave_port = slave_address
+        #         client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        #         client.connect((slave_host, slave_port))
+        #         client.send(data.serialize())
+        #         client.recv(1024)
+        #         client.close()
+        #     except Exception as e:
+        #         print(f"Error sending data to slave {slave_address}: {str(e)}")
 
-    def handle_command(self, client_address, data: RESPObject) -> List[RESPObject]:
+        for slave_connection in self.__slave_connections:
+            try:
+                slave_connection.write(data.serialize())
+                await slave_connection.drain()
+            except Exception as e:
+                print(f"Error sending data to slave: {str(e)}")
+
+    def handle_command(self, writer: asyncio.StreamWriter, data: RESPObject) -> List[RESPObject]:
         if not isinstance(data, RESPArray):
             return [RESPSimpleString("ERR unknown command")]
 
@@ -231,9 +239,11 @@ class RedisServer:
                 if self.__repl_info.role == RedisReplicationRole.MASTER:
                     attr = data.value[1].value.lower()
                     if attr == "listening-port":
+                        client_address = writer.get_extra_info('peername')
                         client_tcp_server = (client_address[0], int(data.value[2].value))
                         self.__slave_address.append(client_tcp_server)
                         self.__repl_info.connected_slaves = len(self.__slave_address)
+                        self.__slave_connections.append(writer)
                         print(f"Connected slaves: {client_tcp_server}")
                     elif attr == "capa":
                         capa = data.value[2].value.lower()
@@ -278,7 +288,7 @@ class RedisServer:
                     writer.write(response)
                     await writer.drain()
                 elif data.type == RESPObjectType.ARRAY:
-                    responses = self.handle_command(addr, data)
+                    responses = self.handle_command(writer, data)
                     for response in responses:
                         if isinstance(response, RESPObject):
                             writer.write(response.serialize())
