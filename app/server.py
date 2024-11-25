@@ -347,7 +347,7 @@ class RedisServer:
                     else:
                         raise NotImplementedError(f"REPLCONF {attr} is not implemented")
 
-                    await self.__send_data(writer, RESPSimpleString(value="OK"))
+                    # await self.__send_data(writer, RESPSimpleString(value="OK"))
                 else:
                     if attr.lower() == "getack":
                         await self.__send_data(writer, RESPArray(value=[RESPBulkString(value="REPLCONF"), RESPBulkString(value="ACK"), RESPBulkString(value=str(self.__repl_ack_offset))]))
@@ -449,7 +449,7 @@ class RedisServer:
 
             writer.write(serialized)
             await writer.drain()
-            print(f"Successfully sent {len(serialized)} bytes to {writer.get_extra_info('peername')}")
+            print(f"Successfully sent {len(serialized)} bytes to {writer.get_extra_info('peername')}: {serialized}")
             return True
         except ConnectionError as e:
             print(f"Connection error while sending to {writer.get_extra_info('peername')}: {e}")
