@@ -208,8 +208,8 @@ class RedisServer:
                 if not data:
                     break
 
-                data = self.resp_parser.parse(data)
                 print(f"Received from master: {data}")
+                data = self.resp_parser.parse(data)
                 if isinstance(data, RESPSimpleString) and data.value == "PING":
                     await self.__send_data(writer, RESPSimpleString("PONG"))
                 elif data.type == RESPObjectType.ARRAY:
