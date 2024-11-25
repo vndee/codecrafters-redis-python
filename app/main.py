@@ -87,8 +87,8 @@ class RedisServer:
             repl_backlog_first_byte_offset=0,
             repl_backlog_histlen=0,
         )
-        self.__slave_address = []
         self.__slave_connections = []
+        self.__master_connection = None
 
     @staticmethod
     def __generate_master_replid() -> str:
@@ -212,8 +212,6 @@ class RedisServer:
                         await self.__send_data(writer, RESPArray([RESPBulkString("dir"), RESPBulkString(self.__data_store.dir)]))
                     if param == "dbfilename":
                         await self.__send_data(writer, RESPArray([RESPBulkString("dbfilename"), RESPBulkString(self.__data_store.dbfilename)]))
-                    # else:
-                    #     await self.__send_data(writer, RESPSimpleString("ERR invalid parameter"))
 
             case RedisCommand.KEYS:
                 pattern = data.value[1].value
@@ -226,12 +224,8 @@ class RedisServer:
                 if self.__repl_info.role == RedisReplicationRole.MASTER:
                     attr = data.value[1].value.lower()
                     if attr == "listening-port":
-                        client_address = writer.get_extra_info('peername')
-                        client_tcp_server = (client_address[0], int(data.value[2].value))
-                        self.__slave_address.append(client_tcp_server)
-                        self.__repl_info.connected_slaves = len(self.__slave_address)
                         self.__slave_connections.append(writer)
-                        print(f"Connected slaves: {client_tcp_server}")
+                        print(f"Connected slaves: {writer.get_extra_info('peername')}")
                     elif attr == "capa":
                         capa = data.value[2].value.lower()
                         if capa == "psync2":
