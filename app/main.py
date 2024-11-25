@@ -129,6 +129,10 @@ class RedisServer:
             if response.serialize() != b"+OK\r\n":
                 return False
 
+            psync_command = RESPArray([RESPBulkString("PSYNC"), RESPBulkString("?"), RESPBulkString("-1")])
+            response = self.__send_socket(client, psync_command)
+            # TODO: implement PSYNC response parsing
+
             client.close()
             return True
         except Exception as _:
