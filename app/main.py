@@ -209,7 +209,7 @@ class RedisServer:
 
                 await self.__send_data(writer, RESPSimpleString(self.__data_store.set(key, value, **args)))
                 if self.__repl_info.role == RedisReplicationRole.MASTER:
-                    self.__propagate_to_slaves(data)
+                    await self.__propagate_to_slaves(data)
 
             case RedisCommand.GET:
                 key = data.value[1].value
