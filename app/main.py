@@ -173,7 +173,18 @@ class RedisServer:
             await writer.drain()
             recv_data = await reader.read(1024)
             print(f"PSYNC response: {recv_data.split(b';')}")
-            # TODO: implement PSYNC response parsing
+            for line in recv_data.split(b';'):
+                if line.startswith(b"FULLRESYNC"):
+                    parts = line.split(b'\r\n')
+                    master_replid, master_repl_offset = parts[0].split(b' ')[1:]
+                    self.__repl_info.master_replid = master_replid.decode()
+                    self.__repl_info.master_repl_offset = int(master_repl_offset)
+
+                    rdb_length = int(parts[1])
+                    rdb_content = parts[2]
+                    self.__data_store.load_from_rdb_bytes(rdb_content)
+                else:
+                    await self.handle_command(writer, self.resp_parser.parse(line))
 
             # Store the connection
             self.__master_connection = (reader, writer)
@@ -290,6 +301,7 @@ class RedisServer:
                 await self.__send_data(writer, RESPSimpleString(f"FULLRESYNC {self.__repl_info.master_replid} {self.__repl_info.master_repl_offset}"))
                 await self.__send_data(writer, RESPBytesLength(len(rdb_content)))
                 await self.__send_data(writer, rdb_content)
+
             case _:
                 await self.__send_data(writer, RESPSimpleString("ERR unknown command"))
 

@@ -1,6 +1,7 @@
 import os
 import re
 import time
+import tempfile
 from enum import StrEnum
 from fnmatch import translate
 from functools import lru_cache
@@ -20,6 +21,7 @@ class RedisCommand(StrEnum):
     INFO = "info"
     REPLCONF = "replconf"
     PSYNC = "psync"
+    FULLRESYNC = "fullresync"
 
 
 RedisString = str
@@ -146,19 +148,18 @@ class RedisDataStore:
         os.makedirs(self.dir, exist_ok=True)
         self.__data_dict.setdefault(self.database_idx, {})
 
-        self.__load_from_rdb()
+        self.__load_from_rdb(os.path.join(self.dir, self.dbfilename))
 
-    def __load_from_rdb(self):
+    def __load_from_rdb(self, file_path: str):
         """
         Load data from RDB file if it exists
         :return:
         """
-        rdb_file_path = os.path.join(self.dir, self.dbfilename)
-        if not os.path.exists(rdb_file_path):
+        if not os.path.exists(file_path):
             return
 
         try:
-            rdb_parser = RDBParser(file_path=rdb_file_path)
+            rdb_parser = RDBParser(file_path=file_path)
             data = rdb_parser.parse()
 
             for db, keys in data.items():
@@ -175,6 +176,17 @@ class RedisDataStore:
             print(f"Data: {self.__data_dict}")
         except Exception as e:
             print(f"Error loading RDB file: {str(e)}")
+
+    def load_from_rdb_bytes(self, data: bytes):
+        """
+        Load data from RDB bytes
+        :param data:
+        :return:
+        """
+        with tempfile.NamedTemporaryFile(delete=True) as temp_file:
+            temp_file.write(data)
+            temp_file_path = temp_file.name
+            self.__load_from_rdb(temp_file_path)
 
     @lru_cache(maxsize=None)
     def __glob_to_regex(self, pattern: str) -> re.Pattern:
