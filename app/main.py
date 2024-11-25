@@ -229,8 +229,9 @@ class RedisServer:
                 if repl_id != "?" or repl_offset != -1:
                     raise NotImplementedError("Only PSYNC with ? and -1 is supported")
 
-                # return RESPSimpleString(f"FULLRESYNC {self.__repl_info.master_replid} {self.__repl_info.master_repl_offset}")
+                resp = [RESPSimpleString(f"FULLRESYNC {self.__repl_info.master_replid} {self.__repl_info.master_repl_offset}")]
                 # TODO: Implement PSYNC response and then send the rdb file in bytes to the slave
+                return resp
             case _:
                 return [RESPSimpleString("ERR unknown command")]
 
