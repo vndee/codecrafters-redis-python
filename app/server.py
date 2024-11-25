@@ -356,41 +356,46 @@ class RedisServer:
                     return
 
                 t0 = asyncio.get_event_loop().time()
-                replica_locks = {rw: asyncio.Lock() for rw in self.__replica_acks.keys()}
+                acked_replicas = 0
 
-                async def check_replica_ack(replica_writer, reader_info):
-                    replica_reader, current_offset = reader_info
-                    async with replica_locks[replica_writer]:
+                while True:
+                    for replica_writer, (replica_reader, current_offset) in self.__replica_acks.items():
+                        if replica_writer.is_closing():
+                            continue
+
                         try:
                             ack_cmd = RESPArray(
                                 value=[
-                                    RESPBulkString(value="REPLCONF"),
-                                    RESPBulkString(value="GETACK"),
-                                    RESPBulkString(value="*")
-                                ]
+                                    RESPBulkString(value="REPLCONF", bytes_length=8),
+                                    RESPBulkString(value="GETACK", bytes_length=6),
+                                    RESPBulkString(value="*", bytes_length=1)
+                                ],
+                                bytes_length=21
                             )
-
-                            print(f"Sending ACK command to replica: {ack_cmd.serialize()}")
                             replica_writer.write(ack_cmd.serialize())
                             await replica_writer.drain()
+                            print(f"Sent ACK command to replica: {replica_writer.get_extra_info('peername')} -> {ack_cmd.serialize()}")
 
                             elapsed_ms = (asyncio.get_event_loop().time() - t0) * 1000
-                            remaining_timeout = max(0.1, (timeout - elapsed_ms) / 1000) if timeout > 0 else 1
+                            if timeout > 0 and elapsed_ms >= timeout:
+                                break
 
-                            print(f"Waiting for ACK from replica: {replica_writer.get_extra_info('peername')} - timeout: {remaining_timeout}")
+                            remaining_timeout = max(0.1, (timeout - elapsed_ms) / 1000) if timeout > 0 else 1
+                            print(f"Wating for ACK from replica: {replica_writer.get_extra_info('peername')} - timeout: {remaining_timeout}")
                             resp = await asyncio.wait_for(replica_reader.readline(), timeout=remaining_timeout)
+
                             if resp:
                                 commands = self.resp_parser.parse(resp)
                                 for cmd in commands:
                                     if cmd.type == RESPObjectType.ARRAY:
                                         await self.handle_command(replica_reader, replica_writer, cmd)
-                            return True
-                        except Exception as e:
-                            print(f"Failed to get ACK: {e}")
-                            return False
 
-                while True:
-                    acked_replicas = sum(1 for v in self.__replica_acks.values() if v[1] >= self.__repl_info.master_repl_offset)
+                        except Exception as e:
+                            print(f"Failed to get ACK from replica: {e}")
+                            continue
+
+                    acked_replicas = sum(1 for v in self.__replica_acks.values() if
+                                         v[1] >= self.__repl_info.master_repl_offset)
 
                     if acked_replicas >= num_replicas:
                         break
@@ -399,14 +404,6 @@ class RedisServer:
                     if timeout > 0 and elapsed_ms >= timeout:
                         break
 
-                    tasks = [
-                        check_replica_ack(rw, ri)
-                        for rw, ri in self.__replica_acks.items()
-                        if not rw.is_closing()
-                    ]
-
-                    if tasks:
-                        await asyncio.gather(*tasks, return_exceptions=True)
                     await asyncio.sleep(0.1)
 
                 await self.__send_data(writer, RESPInteger(value=acked_replicas))
