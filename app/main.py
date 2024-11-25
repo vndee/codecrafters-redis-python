@@ -179,17 +179,17 @@ class RedisServer:
             except Exception as e:
                 print(f"Error sending data to slave: {str(e)}")
 
-    def handle_command(self, writer: asyncio.StreamWriter, data: RESPObject) -> List[RESPObject]:
+    async def handle_command(self, writer: asyncio.StreamWriter, data: RESPObject) -> None:
         if not isinstance(data, RESPArray):
-            return [RESPSimpleString("ERR unknown command")]
+            await self.__send_data(writer, RESPSimpleString("ERR unknown command"))
 
         command = data.value[0].value.lower()
         match command:
             case RedisCommand.PING:
-                return [RESPSimpleString("PONG")]
+                await self.__send_data(writer, RESPSimpleString("PONG"))
 
             case RedisCommand.ECHO:
-                return [RESPBulkString(data.value[1].value)]
+                await self.__send_data(writer, RESPBulkString(data.value[1].value))
 
             case RedisCommand.SET:
                 key = data.value[1].value
@@ -206,34 +206,33 @@ class RedisServer:
                         args[arg_name] = True
                         i = i + 1
                     else:
-                        return [RESPSimpleString("ERR syntax error")]
+                        await self.__send_data(writer, RESPSimpleString("ERR syntax error"))
 
-                resp = [RESPSimpleString(self.__data_store.set(key, value, **args))]
-                if self.__repl_info.role == RedisReplicationRole.MASTER:
-                    self.__propagate_to_slaves(data)
-
-                return resp
+                await self.__send_data(writer, RESPSimpleString(self.__data_store.set(key, value, **args)))
+                # if self.__repl_info.role == RedisReplicationRole.MASTER:
+                #     self.__propagate_to_slaves(data)
 
             case RedisCommand.GET:
                 key = data.value[1].value
-                return [RESPBulkString(self.__data_store.get(key))]
+                await self.__send_data(writer, RESPBulkString(self.__data_store.get(key)))
 
             case RedisCommand.CONFIG:
                 method = data.value[1].value.lower()
                 if method == RedisCommand.GET:
                     param = data.value[2].value.lower()
                     if param == "dir":
-                        return [RESPArray([RESPBulkString("dir"), RESPBulkString(self.__data_store.dir)])]
+                        await self.__send_data(writer, RESPArray([RESPBulkString("dir"), RESPBulkString(self.__data_store.dir)]))
                     if param == "dbfilename":
-                        return [RESPArray([RESPBulkString("dbfilename"), RESPBulkString(self.__data_store.dbfilename)])]
-                    return [RESPSimpleString("ERR unknown parameter")]
+                        await self.__send_data(writer, RESPArray([RESPBulkString("dbfilename"), RESPBulkString(self.__data_store.dbfilename)]))
+                    else:
+                        await self.__send_data(writer, RESPSimpleString("ERR invalid parameter"))
 
             case RedisCommand.KEYS:
                 pattern = data.value[1].value
-                return [RESPArray([RESPBulkString(key) for key in self.__data_store.keys(pattern)])]
+                await self.__send_data(writer, RESPArray([RESPBulkString(key) for key in self.__data_store.keys(pattern)]))
 
             case RedisCommand.INFO:
-                return [self.__repl_info.serialize()]
+                await self.__send_data(writer, self.__repl_info.serialize())
 
             case RedisCommand.REPLCONF:
                 if self.__repl_info.role == RedisReplicationRole.MASTER:
@@ -252,7 +251,7 @@ class RedisServer:
                     else:
                         raise NotImplementedError(f"REPLCONF {attr} is not implemented")
 
-                    return [RESPSimpleString("OK")]
+                    await self.__send_data(writer, RESPSimpleString("OK"))
 
             case RedisCommand.PSYNC:
                 repl_id = data.value[1].value
@@ -262,13 +261,21 @@ class RedisServer:
                     raise NotImplementedError("Only PSYNC with ? and -1 is supported")
 
                 rdb_content = self.__data_store.dump_to_rdb()
-                return [
-                    RESPSimpleString(f"FULLRESYNC {self.__repl_info.master_replid} {self.__repl_info.master_repl_offset}"),
-                    RESPBytesLength(len(rdb_content)),
-                    rdb_content
-                ]
+                await self.__send_data(writer, RESPSimpleString(f"FULLRESYNC {self.__repl_info.master_replid} {self.__repl_info.master_repl_offset}"))
+                await self.__send_data(writer, RESPBytesLength(len(rdb_content)))
+                await self.__send_data(writer, rdb_content)
             case _:
-                return [RESPSimpleString("ERR unknown command")]
+                await self.__send_data(writer, RESPSimpleString("ERR unknown command"))
+
+    async def __send_data(self, writer: asyncio.StreamWriter, data: RESPObject | bytes) -> None:
+        if isinstance(data, RESPObject):
+            writer.write(data.serialize())
+        elif isinstance(data, bytes):
+            writer.write(data)
+        else:
+            raise ValueError(f"Invalid response type: {type(data)}")
+
+        await writer.drain()
 
     async def handle_client(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
         addr = writer.get_extra_info('peername')
@@ -288,16 +295,7 @@ class RedisServer:
                     writer.write(response)
                     await writer.drain()
                 elif data.type == RESPObjectType.ARRAY:
-                    responses = self.handle_command(writer, data)
-                    for response in responses:
-                        if isinstance(response, RESPObject):
-                            writer.write(response.serialize())
-                        elif isinstance(response, bytes):
-                            writer.write(response)
-                        else:
-                            raise ValueError(f"Invalid response type: {type(response)}")
-
-                        await writer.drain()
+                    await self.handle_command(writer, data)
                 else:
                     raise NotImplementedError(f"Unsupported command: {data}")
 
