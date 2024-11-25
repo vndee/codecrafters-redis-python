@@ -297,6 +297,7 @@ class RedisServer:
             case RedisCommand.REPLCONF:
                 if self.__repl_info.role == RedisReplicationRole.MASTER:
                     attr = data.value[1].value.lower()
+                    print(attr)
                     if attr.lower() == "listening-port":
                         self.__slave_connections.add(writer)
                         print(f"New connected slaves: {writer.get_extra_info('peername')} - listening port: {data.value[2].value}")
