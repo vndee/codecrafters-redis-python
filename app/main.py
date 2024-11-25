@@ -174,7 +174,7 @@ class RedisServer:
             recv_data = await reader.read(1024)
             print(f"PSYNC response: {recv_data.split(b';')}")
             for line in recv_data.split(b';'):
-                if line.startswith(b"FULLRESYNC"):
+                if line.startswith(b"+FULLRESYNC"):
                     parts = line.split(b'\r\n')
                     master_replid, master_repl_offset = parts[0].split(b' ')[1:]
                     self.__repl_info.master_replid = master_replid.decode()
