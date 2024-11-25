@@ -178,10 +178,17 @@ class RedisServer:
                 print(f"Master replication ID: {self.__repl_info.master_replid}")
                 print(f"Master replication offset: {self.__repl_info.master_repl_offset}")
 
-                # rdb_length = int(parts[1][1:])
-                # rdb_content = parts[2]
-                # print(f"RDB length: {rdb_length}")
-                # print(f"RDB content: {rdb_content}")
+                rdb_length = int(parts[1][1:])
+                rdb_data = parts[2][:rdb_length]
+
+                remaining_data = parts[2][rdb_length:]
+                commands = self.resp_parser.parse(remaining_data)
+
+                for data in commands:
+                    if data.type == RESPObjectType.ARRAY:
+                        await self.handle_command(writer, data, True)
+                    else:
+                        raise NotImplementedError(f"Unsupported command: {data}")
 
             # Store the connection
             self.__master_connection = (reader, writer)
