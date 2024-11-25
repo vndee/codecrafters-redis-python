@@ -175,7 +175,7 @@ class RedisServer:
 
             for command in recv_resp:
                 if command.type == RESPObjectType.ARRAY:
-                    await self.handle_command(writer, command, len(recv_data), True)
+                    await self.handle_command(writer, command, True)
                 elif command.type == RESPObjectType.BULK_BYTES:
                     # TODO: Handle RDB data
                     pass
