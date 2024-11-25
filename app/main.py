@@ -135,7 +135,7 @@ class RedisServer:
             response = self.__send_socket(client, psync_command)
             # TODO: implement PSYNC response parsing
 
-            client.close()
+            self.__master_connection = client
             return True
         except Exception as _:
             return False
