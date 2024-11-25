@@ -339,7 +339,7 @@ class RedisServer:
 
             case RedisCommand.WAIT:
                 num_replicas, timeout = int(data.value[1].value), int(data.value[2].value)
-                await self.__send_data(writer, RESPInteger(value=0))
+                await self.__send_data(writer, RESPInteger(value=len(self.__slave_connections)))
 
             case _:
                 await self.__send_data(writer, RESPSimpleString(value="ERR unknown command"))
