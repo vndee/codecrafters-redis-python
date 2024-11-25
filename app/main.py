@@ -231,9 +231,10 @@ class RedisServer:
                 if self.__repl_info.role == RedisReplicationRole.MASTER:
                     attr = data.value[1].value.lower()
                     if attr == "listening-port":
-                        self.__slave_address.append((client_address[0], int(data.value[2].value)))
+                        client_tcp_server = (client_address[0], int(data.value[2].value))
+                        self.__slave_address.append(client_tcp_server)
                         self.__repl_info.connected_slaves = len(self.__slave_address)
-                        print(f"Connected slaves: {client_address}")
+                        print(f"Connected slaves: {client_tcp_server}")
                     elif attr == "capa":
                         capa = data.value[2].value.lower()
                         if capa == "psync2":
