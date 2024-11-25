@@ -411,7 +411,7 @@ class RedisServer:
                     for replica_writer, replica_reader, current_offset in active_replicas:
                         print(self.__request_acks)
                         repl_addr = replica_writer.get_extra_info('peername')
-                        if not self.__request_acks.get(repl_addr, False):
+                        if not self.__request_acks.get(repl_addr, False) and self.__replica_acks.get(replica_writer, (None, 0))[1] < client_offset:
                             print(f"Requesting ACK from replica {replica_writer.get_extra_info('peername')}")
                             self.__request_acks[repl_addr] = True
                             ack_cmd = RESPArray(
