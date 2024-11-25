@@ -373,10 +373,10 @@ class RedisServer:
                 await self.__send_data(writer, rdb_content)
 
             case RedisCommand.WAIT:
-                if not self.__is_write_before:
-                    print("No writes from this client, returning 0")
-                    await self.__send_data(writer, RESPInteger(value=0))
-                    return
+                # if not self.__is_write_before:
+                #     print("No writes from this client, returning 0")
+                #     await self.__send_data(writer, RESPInteger(value=0))
+                #     return
 
                 num_replicas = int(data.value[1].value)
                 timeout_ms = int(data.value[2].value)
