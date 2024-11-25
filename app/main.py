@@ -188,10 +188,10 @@ class RedisServer:
                 print(f"Master replication ID: {self.__repl_info.master_replid}")
                 print(f"Master replication offset: {self.__repl_info.master_repl_offset}")
 
-                rdb_length = int(parts[1][1:])
-                rdb_content = parts[2]
-                print(f"RDB length: {rdb_length}")
-                print(f"RDB content: {rdb_content}")
+                # rdb_length = int(parts[1][1:])
+                # rdb_content = parts[2]
+                # print(f"RDB length: {rdb_length}")
+                # print(f"RDB content: {rdb_content}")
 
             # Store the connection
             self.__master_connection = (reader, writer)
