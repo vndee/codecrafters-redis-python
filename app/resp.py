@@ -132,6 +132,21 @@ class RESPArray(RESPObject):
         return b"".join(parts)
 
 
+@dataclass
+class RESPBytes(RESPObject):
+    value = bytes
+
+    def __init__(self, value: bytes):
+        """
+        Custom RESP byte strings object for RDB file transfer between replicas
+        :param value:
+        """
+        super().__init__(type=RESPObjectType.BULK_STRING, value=value)
+
+    def serialize(self) -> bytes:
+        return f"${len(self.value)}\r\n{self.value}".encode()
+
+
 class RESPParser:
     def __init__(self, protocol_version: RESPProtocolVersion = RESPProtocolVersion.RESP2):
         self.protocol_version = protocol_version

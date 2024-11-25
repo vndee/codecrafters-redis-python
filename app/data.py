@@ -1,7 +1,6 @@
 import os
 import re
 import time
-import socket
 from enum import StrEnum
 from fnmatch import translate
 from functools import lru_cache
@@ -306,3 +305,11 @@ class RedisDataStore:
                 matched_keys.append(key)
 
         return matched_keys
+
+    def dump_to_rdb(self) -> bytes:
+        """
+        Serialize the data to RDB format
+        :return:
+        """
+        # Hardcode empty RDB file for now
+        return b"REDIS0011\xfa\tredis-ver\x057.2.0\xfa\nredis-bits\xc0@\xfa\x05ctime\xc2m\x08\xbce\xfa\x08used-mem\xc2\xb0\xc4\x10\x00\xfa\x08aof-base\xc0\x00\xff\xf0n;\xfe\xc0\xffZ\xa2"
