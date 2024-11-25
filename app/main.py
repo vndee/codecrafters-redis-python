@@ -195,10 +195,10 @@ class RedisServer:
         try:
             while True:
                 data = await reader.read(1024)
+                print(f"Received from master: {data}")
                 if not data:
                     break
 
-                print(f"Received from master: {data}")
                 commands = self.resp_parser.parse(data)
 
                 for data in commands:
