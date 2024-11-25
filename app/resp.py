@@ -8,6 +8,7 @@ from abc import ABC, abstractmethod
 class RESPObjectTypeCategory(StrEnum):
     SIMPLE = "simple"
     AGGREGATE = "aggregate"
+    EXTRA = "extra"
 
 
 class RESPProtocolVersion(StrEnum):
