@@ -134,7 +134,7 @@ class RedisServer:
             psync_command = RESPArray([RESPBulkString("PSYNC"), RESPBulkString("?"), RESPBulkString("-1")])
             client.send(psync_command.serialize())
             recv_data = client.recv(1024)
-            print(f"PSYNC response: {recv_data}")
+            print(f"PSYNC response: {recv_data.split(b';')}")
             # TODO: implement PSYNC response parsing
 
             self.__master_connection = client
