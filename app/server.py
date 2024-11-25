@@ -361,6 +361,7 @@ class RedisServer:
                 async def wait_for_acks() -> None:
                     t0 = time.time()
                     while True:
+                        print(self.__repl_info.master_repl_offset, self.__replica_acks)
                         if self.__repl_info.master_repl_offset > 0:
                             await self.__get_replica_acks()
 
@@ -377,7 +378,7 @@ class RedisServer:
 
                         await asyncio.sleep(0.1)
 
-                wait_task = asyncio.create_task(wait_for_acks())
+                _ = asyncio.create_task(wait_for_acks())
                 ack_count = await ack_future
                 await self.__send_data(writer, RESPInteger(value=ack_count))
 
