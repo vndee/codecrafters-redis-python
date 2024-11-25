@@ -340,6 +340,7 @@ class RedisServer:
                         print(f"New connected slaves: {writer.get_extra_info('peername')} - listening port: {data.value[2].value}")
                     elif attr.lower() == "ack":
                         self.__replica_acks[writer] = (reader, int(data.value[2].value))
+                        return
                     elif attr.lower() == "capa":
                         capa = data.value[2].value.lower()
                         if capa == "psync2":
@@ -347,7 +348,7 @@ class RedisServer:
                     else:
                         raise NotImplementedError(f"REPLCONF {attr} is not implemented")
 
-                    # await self.__send_data(writer, RESPSimpleString(value="OK"))
+                    await self.__send_data(writer, RESPSimpleString(value="OK"))
                 else:
                     if attr.lower() == "getack":
                         await self.__send_data(writer, RESPArray(value=[RESPBulkString(value="REPLCONF"), RESPBulkString(value="ACK"), RESPBulkString(value=str(self.__repl_ack_offset))]))
