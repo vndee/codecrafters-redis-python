@@ -366,7 +366,7 @@ class RedisServer:
                 elif data.type == RESPObjectType.ARRAY:
                     await self.handle_command(writer, data)
                 else:
-                    pass
+                    print(f"Received unknown command: {data}")
 
         except Exception as e:
             print(f"Error handling client {addr}: {str(e)}")
