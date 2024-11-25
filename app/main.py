@@ -200,7 +200,7 @@ class RedisServer:
         try:
             while True:
                 data = await reader.read(1024)
-                print(f"Received from master: {data}")
+                print(f"Received from master: {data} - length: {len(data)}")
                 if not data:
                     break
 
@@ -208,7 +208,6 @@ class RedisServer:
 
                 for cmd in commands:
                     if isinstance(cmd, RESPSimpleString) and cmd.value == "PING":
-                        # await self.__send_data(writer, RESPSimpleString("PONG"))
                         self.__repl_ack_offset = self.__repl_ack_offset + len(data)
                     elif cmd.type == RESPObjectType.ARRAY:
                         await self.handle_command(writer, cmd, len(data), True)
