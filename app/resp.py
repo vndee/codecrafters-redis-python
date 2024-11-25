@@ -32,6 +32,7 @@ class RESPObjectType(StrEnum):
     ATTRIBUTE = "`"
     SET = "~"
     PUSH = ">"
+    BULK_BYTES = "&"  # Custom type for bytes length
 
 
 @dataclass
@@ -63,6 +64,12 @@ class RESPObject(ABC):
             RESPObjectType.BIG_NUMBER
         }:
             return RESPObjectTypeCategory.SIMPLE
+
+        elif self.type in {
+            RESPObjectType.BULK_BYTES
+        }:
+            return RESPObjectTypeCategory.EXTRA
+
         return RESPObjectTypeCategory.AGGREGATE
 
     @abstractmethod
@@ -115,6 +122,19 @@ class RESPBulkString(RESPObject):
         if self.value is None:
             return b"$-1\r\n"
         return f"${len(self.value)}\r\n{self.value}\r\n".encode()
+
+
+@dataclass
+class RESPBulkBytes(RESPObject):
+    value: Optional[bytes]
+
+    def __init__(self, value: Optional[bytes]):
+        super().__init__(type=RESPObjectType.BULK_BYTES, value=value)
+
+    def serialize(self) -> bytes:
+        if self.value is None:
+            return b"$-1\r\n"
+        return f"${len(self.value)}\r\n{self.value}".encode()
 
 
 @dataclass
@@ -204,6 +224,10 @@ class RESPParser:
                 length = int(data[1:line_end])
                 if length == -1:
                     return line_end + 2
+
+                if len(data) - line_end + length + 2 > 0 and data[line_end + 2 + length:line_end + 2 + length + 2] == b'\r\n':
+                    return line_end + 2 + length + 2    # Size of the bulk string header + length + CRLF
+
                 return line_end + 2 + length
 
             elif resp_type == RESPObjectType.ARRAY:
@@ -238,6 +262,7 @@ class RESPParser:
             type_byte = data[0:1].decode()
             resp_type = RESPObjectType(type_byte)
 
+            is_not_end_with_crlf = not data.endswith(b'\r\n')
             lines = data.split(b'\r\n')
 
             if resp_type == RESPObjectType.SIMPLE_STRING:
@@ -253,7 +278,7 @@ class RESPParser:
                 length = int(lines[0][1:])
                 if length == -1:
                     return RESPBulkString(None)
-                return RESPBulkString(lines[1].decode())
+                return RESPBulkBytes(lines[1]) if is_not_end_with_crlf else RESPBulkString(lines[1].decode())
 
             elif resp_type == RESPObjectType.ARRAY:
                 length = int(lines[0][1:])
@@ -279,8 +304,8 @@ class RESPParser:
         return None
 
 
-# if __name__ == "__main__":
-#     data = b"+FULLRESYNC 75cd7bc10c49047e0d163660f3b90625b1af31dc 0\r\n$88\r\nREDIS0011\xfa\tredis-ver\x057.2.0\xfa\nredis-bits\xc0@\xfa\x05ctime\xc2m\x08\xbce\xfa\x08used-mem\xc2\xb0\xc4\x10\x00\xfa\x08aof-base\xc0\x00\xff\xf0n;\xfe\xc0\xffZ\xa2*3\r\n$8\r\nREPLCONF\r\n$6\r\nGETACK\r\n$1\r\n*\r\n"
-#     parser = RESPParser()
-#     objects = parser.parse(data)
-#     print(objects)
+if __name__ == "__main__":
+    data = b'+FULLRESYNC 75cd7bc10c49047e0d163660f3b90625b1af31dc 0\r\n$88\r\nREDIS0011\xfa\tredis-ver\x057.2.0\xfa\nredis-bits\xc0@\xfa\x05ctime\xc2m\x08\xbce\xfa\x08used-mem\xc2\xb0\xc4\x10\x00\xfa\x08aof-base\xc0\x00\xff\xf0n;\xfe\xc0\xffZ\xa2*3\r\n$8\r\nREPLCONF\r\n$6\r\nGETACK\r\n$1\r\n*\r\n'
+    parser = RESPParser()
+    objects = parser.parse(data)
+    print(objects)
