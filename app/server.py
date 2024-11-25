@@ -217,7 +217,7 @@ class RedisServer:
     async def handle_master_message(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
         try:
             while True:
-                data = await reader.read(-1)
+                data = await reader.read(1024)
                 print(f"Received from master: {data} - length: {len(data)}")
                 if not data:
                     break
@@ -300,16 +300,16 @@ class RedisServer:
                     else:
                         await self.__send_data(writer, RESPSimpleString(value="ERR syntax error"))
 
-                resp = RESPSimpleString(value=self.__data_store.set(key, value, **args))
-                if not is_master_command:
-                    await self.__send_data(writer, resp)
-
                 if self.__repl_info.role == RedisReplicationRole.MASTER:
                     self.__is_pending_write = True
                     self.__is_write_before = True
                     self.__repl_info.master_repl_offset = self.__repl_info.master_repl_offset + data.bytes_length
                     self.__client_write_offsets[writer] = self.__repl_info.master_repl_offset
                     await self.__propagate_to_slaves(data)
+
+                resp = RESPSimpleString(value=self.__data_store.set(key, value, **args))
+                if not is_master_command:
+                    await self.__send_data(writer, resp)
 
             case RedisCommand.GET:
                 key = data.value[1].value
