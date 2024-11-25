@@ -82,6 +82,7 @@ class RedisServer:
         self.__slave_connections: Set[asyncio.StreamWriter] = set()
         self.__master_connection = None
         self.__master_listener = None
+        self.__repl_ack_offset = 0
 
         self.__replicaof = replicaof
 
@@ -188,7 +189,7 @@ class RedisServer:
 
                     for data in commands:
                         if data.type == RESPObjectType.ARRAY:
-                            await self.handle_command(writer, data, True)
+                            await self.handle_command(writer, data, len(remaining_data), True)
                         else:
                             raise NotImplementedError(f"Unsupported command: {data}")
 
@@ -210,13 +211,13 @@ class RedisServer:
 
                 commands = self.resp_parser.parse(data)
 
-                for data in commands:
-                    if isinstance(data, RESPSimpleString) and data.value == "PING":
+                for cmd in commands:
+                    if isinstance(cmd, RESPSimpleString) and cmd.value == "PING":
                         await self.__send_data(writer, RESPSimpleString("PONG"))
-                    elif data.type == RESPObjectType.ARRAY:
-                        await self.handle_command(writer, data, True)
+                    elif cmd.type == RESPObjectType.ARRAY:
+                        await self.handle_command(writer, cmd, len(data), True)
                     else:
-                        raise NotImplementedError(f"Unsupported command: {data}")
+                        raise NotImplementedError(f"Unsupported command: {cmd}")
 
         except Exception as e:
             print(f"Error handling master message: {str(e)}")
@@ -237,7 +238,7 @@ class RedisServer:
             except Exception as e:
                 print(f"Error sending data to slave: {str(e)}")
 
-    async def handle_command(self, writer: asyncio.StreamWriter, data: RESPObject, is_master_command: bool = False) -> None:
+    async def handle_command(self, writer: asyncio.StreamWriter, data: RESPObject, data_byte_size: int, is_master_command: bool = False) -> None:
         if not isinstance(data, RESPArray):
             await self.__send_data(writer, RESPSimpleString("ERR unknown command"))
 
@@ -311,7 +312,9 @@ class RedisServer:
                     await self.__send_data(writer, RESPSimpleString("OK"))
                 else:
                     if attr.lower() == "getack":
-                        await self.__send_data(writer, RESPArray([RESPBulkString("REPLCONF"), RESPBulkString("ACK"), RESPBulkString("0")]))
+                        await self.__send_data(writer, RESPArray([RESPBulkString("REPLCONF"), RESPBulkString("ACK"), RESPBulkString(str(self.__repl_ack_offset))]))
+                    else:
+                        raise NotImplementedError(f"REPLCONF {attr} is not implemented")
 
             case RedisCommand.PSYNC:
                 repl_id = data.value[1].value
@@ -327,6 +330,8 @@ class RedisServer:
 
             case _:
                 await self.__send_data(writer, RESPSimpleString("ERR unknown command"))
+
+        self.__repl_ack_offset = self.__repl_ack_offset + data_byte_size
 
     async def __send_data(self, writer: asyncio.StreamWriter, data: RESPObject | bytes) -> None:
         print(f"Sending data: {data}")
@@ -352,15 +357,15 @@ class RedisServer:
                 commands = self.resp_parser.parse(data)
                 print(f"Received {data} from {addr}")
 
-                for data in commands:
-                    if isinstance(data, RESPSimpleString) and data.value == "PING":
+                for cmd in commands:
+                    if isinstance(cmd, RESPSimpleString) and cmd.value == "PING":
                         response = b"+PONG\r\n"
                         writer.write(response)
                         await writer.drain()
                     elif data.type == RESPObjectType.ARRAY:
-                        await self.handle_command(writer, data)
+                        await self.handle_command(writer, cmd, len(data))
                     else:
-                        print(f"Received unknown command: {data.serialize()}")
+                        print(f"Received unknown command: {cmd.serialize()}")
 
         except Exception as e:
             print(f"Error handling client {addr}: {str(e)}")
