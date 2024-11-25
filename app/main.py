@@ -56,21 +56,18 @@ class RedisReplicationInformation:
 
 class RedisServer:
     def __init__(
-            self,
-            host: str = "127.0.0.1",
-            port: int = 6379,
-            dir: str = "/tmp/redis-files",
-            dbfilename: str = "dump.rdb",
-            replicaof: str = None,
+        self,
+        host: str = "127.0.0.1",
+        port: int = 6379,
+        dir: str = "/tmp/redis-files",
+        dbfilename: str = "dump.rdb",
+        replicaof: str = None,
     ):
         self.host = host
         self.port = port
         self.resp_parser = RESPParser()
 
         self.__data_store = RedisDataStore(dir=dir, dbfilename=dbfilename)
-        self.__replicaof = None
-        self.__master_connection = None
-        self.__slave_connections: Set[asyncio.StreamWriter] = set()
 
         if replicaof is not None:
             if not self.__ping_master_node(replicaof):
@@ -90,90 +87,64 @@ class RedisServer:
             repl_backlog_first_byte_offset=0,
             repl_backlog_histlen=0,
         )
+        self.__slave_connections: Set[asyncio.StreamWriter] = set()
+        self.__master_connection = None
 
     @staticmethod
     def __generate_master_replid() -> str:
         """
         Generate a unique master replication ID (pseudo random alphanumeric string of 40 characters).
+        :return:
         """
         return uuid.uuid4().hex
 
-    async def __remove_slave(self, writer: asyncio.StreamWriter):
-        """
-        Remove a slave connection and close it properly.
-        """
-        if writer in self.__slave_connections:
-            self.__slave_connections.remove(writer)
-            self.__repl_info.connected_slaves = len(self.__slave_connections)
-            try:
-                writer.close()
-                await writer.wait_closed()
-            except Exception as e:
-                print(f"Error closing slave connection: {str(e)}")
-        print(f"Removed slave connection: {writer.get_extra_info('peername')}")
-
     def __send_socket(self, client: socket.socket, data: RESPObject) -> RESPObject:
         """
-        Send data to the client socket and receive response.
+        Send data to the client socket.
+        :param client: Client socket.
+        :param data: Data to send.
         """
         client.send(data.serialize())
         return self.resp_parser.parse(client.recv(1024))
 
     def __ping_master_node(self, master_address: str) -> bool:
         """
-        Ping the master node to check if it is alive and establish replication connection.
+        Ping the master node to check if it is alive.
+        :param master_address: Address of the master node.
+        :return: True if the master node is alive, False otherwise.
         """
         master_host, master_port = master_address.split(" ")
         try:
             client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             client.connect((master_host, int(master_port)))
-
-            # Send PING
             response = self.__send_socket(client, RESPArray([RESPBulkString("PING")]))
             if response.serialize() != b"+PONG\r\n":
                 return False
 
-            # Configure replication
-            replconf_listening_port = RESPArray([
-                RESPBulkString("REPLCONF"),
-                RESPBulkString("listening-port"),
-                RESPBulkString(str(self.port))
-            ])
+            replconf_listening_port = RESPArray([RESPBulkString("REPLCONF"), RESPBulkString("listening-port"), RESPBulkString(str(self.port))])
             response = self.__send_socket(client, replconf_listening_port)
             if response.serialize() != b"+OK\r\n":
                 return False
 
-            replconf_capa_psync2 = RESPArray([
-                RESPBulkString("REPLCONF"),
-                RESPBulkString("capa"),
-                RESPBulkString("psync2")
-            ])
+            replconf_capa_psync2 = RESPArray([RESPBulkString("REPLCONF"), RESPBulkString("capa"), RESPBulkString("psync2")])
             response = self.__send_socket(client, replconf_capa_psync2)
             if response.serialize() != b"+OK\r\n":
                 return False
 
-            # Initialize replication sync
-            psync_command = RESPArray([
-                RESPBulkString("PSYNC"),
-                RESPBulkString("?"),
-                RESPBulkString("-1")
-            ])
+            psync_command = RESPArray([RESPBulkString("PSYNC"), RESPBulkString("?"), RESPBulkString("-1")])
             response = self.__send_socket(client, psync_command)
             # TODO: implement PSYNC response parsing
 
             self.__master_connection = client
             return True
-        except Exception as e:
-            print(f"Error connecting to master: {str(e)}")
+        except Exception as _:
             return False
 
     def __send_to_master(self, data: RESPObject) -> RESPObject:
         """
-        Send data to the master node and receive response.
+        Send the data to the master node.
+        :param data: Data to send.
         """
-        if not self.__replicaof:
-            return RESPSimpleString("ERR not connected to master")
-
         master_host, master_port = self.__replicaof.split(" ")
         try:
             client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -187,29 +158,99 @@ class RedisServer:
 
     async def __propagate_to_slaves(self, data: RESPObject):
         """
-        Propagate data to all connected slaves.
+        Propagate the data to all connected slaves.
+        :param data: Data to propagate.
         """
-        closed_slaves = set()
-
-        for slave_writer in self.__slave_connections:
+        for slave_connection in self.__slave_connections:
             try:
-                print(f"Propagating data to slave: {slave_writer.get_extra_info('peername')} - {data}")
-                await self.__send_data(slave_writer, data)
-            except ConnectionError as e:
-                print(f"Connection error with slave {slave_writer.get_extra_info('peername')}: {str(e)}")
-                closed_slaves.add(slave_writer)
+                print(f"Propagating data to slave: {slave_connection.get_extra_info('peername')} - {data}")
+                await self.__send_data(slave_connection, data)
             except Exception as e:
-                print(f"Error sending data to slave {slave_writer.get_extra_info('peername')}: {str(e)}")
-                closed_slaves.add(slave_writer)
+                print(f"Error sending data to slave: {str(e)}")
 
-        # Remove closed slave connections
-        for closed_slave in closed_slaves:
-            await self.__remove_slave(closed_slave)
+    async def handle_command(self, writer: asyncio.StreamWriter, data: RESPObject) -> None:
+        if not isinstance(data, RESPArray):
+            await self.__send_data(writer, RESPSimpleString("ERR unknown command"))
+
+        command = data.value[0].value.lower()
+        match command:
+            case RedisCommand.PING:
+                await self.__send_data(writer, RESPSimpleString("PONG"))
+
+            case RedisCommand.ECHO:
+                await self.__send_data(writer, RESPBulkString(data.value[1].value))
+
+            case RedisCommand.SET:
+                key = data.value[1].value
+                value = data.value[2].value
+
+                i = 3
+                args: Dict[str, Any] = {}
+                while i < len(data.value):
+                    arg_name = data.value[i].value.lower()
+                    if arg_name in ("ex", "px", "exat", "pxat"):
+                        args[arg_name] = int(data.value[i + 1].value)
+                        i = i + 2
+                    elif arg_name in ("nx", "xx", "keepttl", "get"):
+                        args[arg_name] = True
+                        i = i + 1
+                    else:
+                        await self.__send_data(writer, RESPSimpleString("ERR syntax error"))
+
+                await self.__send_data(writer, RESPSimpleString(self.__data_store.set(key, value, **args)))
+                if self.__repl_info.role == RedisReplicationRole.MASTER:
+                    await self.__propagate_to_slaves(data)
+
+            case RedisCommand.GET:
+                key = data.value[1].value
+                await self.__send_data(writer, RESPBulkString(self.__data_store.get(key)))
+
+            case RedisCommand.CONFIG:
+                method = data.value[1].value.lower()
+                if method == RedisCommand.GET:
+                    param = data.value[2].value.lower()
+                    if param == "dir":
+                        await self.__send_data(writer, RESPArray([RESPBulkString("dir"), RESPBulkString(self.__data_store.dir)]))
+                    if param == "dbfilename":
+                        await self.__send_data(writer, RESPArray([RESPBulkString("dbfilename"), RESPBulkString(self.__data_store.dbfilename)]))
+
+            case RedisCommand.KEYS:
+                pattern = data.value[1].value
+                await self.__send_data(writer, RESPArray([RESPBulkString(key) for key in self.__data_store.keys(pattern)]))
+
+            case RedisCommand.INFO:
+                await self.__send_data(writer, self.__repl_info.serialize())
+
+            case RedisCommand.REPLCONF:
+                if self.__repl_info.role == RedisReplicationRole.MASTER:
+                    attr = data.value[1].value.lower()
+                    if attr == "listening-port":
+                        self.__slave_connections.add(writer)
+                        print(f"Connected slaves: {writer.get_extra_info('peername')}")
+                    elif attr == "capa":
+                        capa = data.value[2].value.lower()
+                        if capa == "psync2":
+                            pass
+                    else:
+                        raise NotImplementedError(f"REPLCONF {attr} is not implemented")
+
+                    await self.__send_data(writer, RESPSimpleString("OK"))
+
+            case RedisCommand.PSYNC:
+                repl_id = data.value[1].value
+                repl_offset = int(data.value[2].value)
+
+                if repl_id != "?" or repl_offset != -1:
+                    raise NotImplementedError("Only PSYNC with ? and -1 is supported")
+
+                rdb_content = self.__data_store.dump_to_rdb()
+                await self.__send_data(writer, RESPSimpleString(f"FULLRESYNC {self.__repl_info.master_replid} {self.__repl_info.master_repl_offset}"))
+                await self.__send_data(writer, RESPBytesLength(len(rdb_content)))
+                await self.__send_data(writer, rdb_content)
+            case _:
+                await self.__send_data(writer, RESPSimpleString("ERR unknown command"))
 
     async def __send_data(self, writer: asyncio.StreamWriter, data: RESPObject | bytes) -> None:
-        """
-        Send data to a client.
-        """
         if isinstance(data, RESPObject):
             writer.write(data.serialize())
         elif isinstance(data, bytes):
@@ -219,173 +260,39 @@ class RedisServer:
 
         await writer.drain()
 
-    async def handle_command(self, writer: asyncio.StreamWriter, data: RESPObject) -> None:
-        """
-        Handle a Redis command.
-        """
-        try:
-            if not isinstance(data, RESPArray):
-                await self.__send_data(writer, RESPSimpleString("ERR unknown command"))
-                return
-
-            command = data.value[0].value.lower()
-            match command:
-                case RedisCommand.PING:
-                    await self.__send_data(writer, RESPSimpleString("PONG"))
-
-                case RedisCommand.ECHO:
-                    await self.__send_data(writer, RESPBulkString(data.value[1].value))
-
-                case RedisCommand.SET:
-                    key = data.value[1].value
-                    value = data.value[2].value
-
-                    i = 3
-                    args: Dict[str, Any] = {}
-                    while i < len(data.value):
-                        arg_name = data.value[i].value.lower()
-                        if arg_name in ("ex", "px", "exat", "pxat"):
-                            args[arg_name] = int(data.value[i + 1].value)
-                            i = i + 2
-                        elif arg_name in ("nx", "xx", "keepttl", "get"):
-                            args[arg_name] = True
-                            i = i + 1
-                        else:
-                            await self.__send_data(writer, RESPSimpleString("ERR syntax error"))
-                            return
-
-                    await self.__send_data(writer, RESPSimpleString(self.__data_store.set(key, value, **args)))
-                    if self.__repl_info.role == RedisReplicationRole.MASTER:
-                        await self.__propagate_to_slaves(data)
-
-                case RedisCommand.GET:
-                    key = data.value[1].value
-                    await self.__send_data(writer, RESPBulkString(self.__data_store.get(key)))
-
-                case RedisCommand.CONFIG:
-                    method = data.value[1].value.lower()
-                    if method == RedisCommand.GET:
-                        param = data.value[2].value.lower()
-                        if param == "dir":
-                            await self.__send_data(
-                                writer,
-                                RESPArray([
-                                    RESPBulkString("dir"),
-                                    RESPBulkString(self.__data_store.dir)
-                                ])
-                            )
-                        if param == "dbfilename":
-                            await self.__send_data(
-                                writer,
-                                RESPArray([
-                                    RESPBulkString("dbfilename"),
-                                    RESPBulkString(self.__data_store.dbfilename)
-                                ])
-                            )
-
-                case RedisCommand.KEYS:
-                    pattern = data.value[1].value
-                    await self.__send_data(
-                        writer,
-                        RESPArray([RESPBulkString(key) for key in self.__data_store.keys(pattern)])
-                    )
-
-                case RedisCommand.INFO:
-                    await self.__send_data(writer, self.__repl_info.serialize())
-
-                case RedisCommand.REPLCONF:
-                    if self.__repl_info.role == RedisReplicationRole.MASTER:
-                        attr = data.value[1].value.lower()
-                        if attr == "listening-port":
-                            self.__slave_connections.add(writer)
-                            self.__repl_info.connected_slaves = len(self.__slave_connections)
-                            print(f"Connected slaves: {writer.get_extra_info('peername')}")
-                        elif attr == "capa":
-                            capa = data.value[2].value.lower()
-                            if capa == "psync2":
-                                pass
-                        else:
-                            raise NotImplementedError(f"REPLCONF {attr} is not implemented")
-
-                        await self.__send_data(writer, RESPSimpleString("OK"))
-
-                case RedisCommand.PSYNC:
-                    repl_id = data.value[1].value
-                    repl_offset = int(data.value[2].value)
-
-                    if repl_id != "?" or repl_offset != -1:
-                        raise NotImplementedError("Only PSYNC with ? and -1 is supported")
-
-                    rdb_content = self.__data_store.dump_to_rdb()
-                    await self.__send_data(
-                        writer,
-                        RESPSimpleString(
-                            f"FULLRESYNC {self.__repl_info.master_replid} {self.__repl_info.master_repl_offset}"
-                        )
-                    )
-                    await self.__send_data(writer, RESPBytesLength(len(rdb_content)))
-                    await self.__send_data(writer, rdb_content)
-
-                case _:
-                    await self.__send_data(writer, RESPSimpleString("ERR unknown command"))
-
-        except ConnectionError as e:
-            print(f"Connection error while handling command: {str(e)}")
-            if writer in self.__slave_connections:
-                await self.__remove_slave(writer)
-            raise
-        except Exception as e:
-            print(f"Error handling command: {str(e)}")
-            raise
-
     async def handle_client(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
-        """
-        Handle client connection.
-        """
         addr = writer.get_extra_info('peername')
         print(f"New connection from {addr}")
 
         try:
             while True:
-                try:
-                    data = await reader.read(1024)
-                    if not data:
-                        break
-
-                    data = self.resp_parser.parse(data)
-                    print(f"Received {data} from {addr}")
-
-                    if isinstance(data, RESPSimpleString) and data.value == "PING":
-                        response = b"+PONG\r\n"
-                        writer.write(response)
-                        await writer.drain()
-                    elif data.type == RESPObjectType.ARRAY:
-                        await self.handle_command(writer, data)
-                    else:
-                        raise NotImplementedError(f"Unsupported command: {data}")
-
-                except ConnectionError as e:
-                    print(f"Connection error with client {addr}: {str(e)}")
-                    break
-                except Exception as e:
-                    print(f"Error handling client {addr}: {str(e)}")
+                data = await reader.read(1024)
+                if not data:
                     break
 
+                data = self.resp_parser.parse(data)
+                print(f"Received {data} from {addr}")
+
+                if isinstance(data, RESPSimpleString) and data.value == "PING":
+                    response = b"+PONG\r\n"
+                    writer.write(response)
+                    await writer.drain()
+                elif data.type == RESPObjectType.ARRAY:
+                    await self.handle_command(writer, data)
+                else:
+                    raise NotImplementedError(f"Unsupported command: {data}")
+
+        except Exception as e:
+            print(f"Error handling client {addr}: {str(e)}")
         finally:
             print(f"Closing connection from {addr}")
-            if writer in self.__slave_connections:
-                await self.__remove_slave(writer)
-            else:
-                writer.close()
-                try:
-                    await writer.wait_closed()
-                except Exception as e:
-                    print(f"Error while closing connection: {str(e)}")
+            writer.close()
+            try:
+                await writer.wait_closed()
+            except Exception as e:
+                print(f"Error while closing connection: {str(e)}")
 
     async def start(self):
-        """
-        Start the Redis server.
-        """
         server = await asyncio.start_server(
             self.handle_client,
             self.host,
@@ -398,6 +305,7 @@ class RedisServer:
         async with server:
             await server.serve_forever()
 
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Redis server")
     parser.add_argument("--host", type=str, default="127.0.0.1", help="Host")
@@ -407,11 +315,5 @@ if __name__ == "__main__":
     parser.add_argument("--replicaof", type=str, help="Replicate another Redis server", default=None)
     args = parser.parse_args()
 
-    redis_server = RedisServer(
-        dir=args.dir,
-        dbfilename=args.dbfilename,
-        host=args.host,
-        port=args.port,
-        replicaof=args.replicaof
-    )
+    redis_server = RedisServer(dir=args.dir, dbfilename=args.dbfilename, host=args.host, port=args.port, replicaof=args.replicaof)
     asyncio.run(redis_server.start())
