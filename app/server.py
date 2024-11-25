@@ -258,7 +258,7 @@ class RedisServer:
         while True:
             for slave_connection in self.__slave_connections:
                 if not slave_connection.is_closing():
-                    await self.__send_data(slave_connection, RESPArray(value=[RESPBulkString(value="REPLCONF"), RESPBulkString(value="GETACK")]))
+                    await self.__send_data(slave_connection, RESPArray(value=[RESPBulkString(value="REPLCONF"), RESPBulkString(value="GETACK"), RESPBulkString(value="*")]))
 
     async def handle_command(self, writer: asyncio.StreamWriter, data: RESPObject, is_master_command: bool = False) -> None:
         if not isinstance(data, RESPArray):
