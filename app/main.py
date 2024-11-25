@@ -41,15 +41,17 @@ class RedisReplicationInformation:
         separate by a colon. The key is the attribute name and the value is the attribute value.
         """
         return RESPBulkString(
-            f"role:{self.role}\n"
-            f"connected_slaves:{self.connected_slaves}\n"
-            f"master_replid:{self.master_replid}\n"
-            f"master_repl_offset:{self.master_repl_offset}\n"
-            f"second_repl_offset:{self.second_repl_offset}\n"
-            f"repl_backlog_active:{1 if self.repl_backlog_active else 0}\n"
-            f"repl_backlog_size:{self.repl_backlog_size}\n"
-            f"repl_backlog_first_byte_offset:{self.repl_backlog_first_byte_offset}\n"
-            f"repl_backlog_histlen:{self.repl_backlog_histlen}\n"
+            value=(
+                f"role:{self.role}\n"
+                f"connected_slaves:{self.connected_slaves}\n"
+                f"master_replid:{self.master_replid}\n"
+                f"master_repl_offset:{self.master_repl_offset}\n"
+                f"second_repl_offset:{self.second_repl_offset}\n"
+                f"repl_backlog_active:{1 if self.repl_backlog_active else 0}\n"
+                f"repl_backlog_size:{self.repl_backlog_size}\n"
+                f"repl_backlog_first_byte_offset:{self.repl_backlog_first_byte_offset}\n"
+                f"repl_backlog_histlen:{self.repl_backlog_histlen}\n"
+            )
         )
 
 
@@ -131,18 +133,20 @@ class RedisServer:
                     return None
 
             # Send PING
-            response = await send_command(RESPArray([RESPBulkString("PING")]))
+            response = await send_command(RESPArray(value=[RESPBulkString(value="PING")]))
             if not response or response != b"+PONG\r\n":
                 writer.close()
                 await writer.wait_closed()
                 return False
 
             # Send REPLCONF listening-port
-            replconf_listening_port = RESPArray([
-                RESPBulkString("REPLCONF"),
-                RESPBulkString("listening-port"),
-                RESPBulkString(str(self.port))
-            ])
+            replconf_listening_port = RESPArray(
+                value=[
+                    RESPBulkString(value="REPLCONF"),
+                    RESPBulkString(value="listening-port"),
+                    RESPBulkString(value=str(self.port))
+                ]
+            )
             response = await send_command(replconf_listening_port)
             if not response or response != b"+OK\r\n":
                 writer.close()
@@ -150,11 +154,13 @@ class RedisServer:
                 return False
 
             # Send REPLCONF capa psync2
-            replconf_capa_psync2 = RESPArray([
-                RESPBulkString("REPLCONF"),
-                RESPBulkString("capa"),
-                RESPBulkString("psync2")
-            ])
+            replconf_capa_psync2 = RESPArray(
+                value=[
+                    RESPBulkString(value="REPLCONF"),
+                    RESPBulkString(value="capa"),
+                    RESPBulkString(value="psync2")
+                ]
+            )
             response = await send_command(replconf_capa_psync2)
             if not response or response != b"+OK\r\n":
                 writer.close()
@@ -162,11 +168,14 @@ class RedisServer:
                 return False
 
             # Send PSYNC command
-            psync_command = RESPArray([
-                RESPBulkString("PSYNC"),
-                RESPBulkString("?"),
-                RESPBulkString("-1")
-            ])
+            psync_command = RESPArray(
+                value=[
+                    RESPBulkString(value="PSYNC", bytes_length=5),
+                    RESPBulkString(value="?", bytes_length=1),
+                    RESPBulkString(value="-1", bytes_length=2)
+                ],
+                bytes_length=11
+            )
             writer.write(psync_command.serialize())
             await writer.drain()
             recv_data = await reader.read(1024)
@@ -217,8 +226,6 @@ class RedisServer:
                     else:
                         raise NotImplementedError(f"Unsupported command: {cmd}")
 
-                self.__repl_ack_offset = self.__repl_ack_offset + len(data)
-
         except Exception as e:
             print(f"Error handling master message: {str(e)}")
         finally:
@@ -240,17 +247,17 @@ class RedisServer:
 
     async def handle_command(self, writer: asyncio.StreamWriter, data: RESPObject, is_master_command: bool = False) -> None:
         if not isinstance(data, RESPArray):
-            await self.__send_data(writer, RESPSimpleString("ERR unknown command"))
+            await self.__send_data(writer, RESPSimpleString(value="ERR unknown command"))
 
         print(f"Handling command: {data} - is_master_command: {is_master_command}")
         command = data.value[0].value.lower()
         match command:
             case RedisCommand.PING:
                 if not is_master_command:
-                    await self.__send_data(writer, RESPSimpleString("PONG"))
+                    await self.__send_data(writer, RESPSimpleString(value="PONG"))
 
             case RedisCommand.ECHO:
-                await self.__send_data(writer, RESPBulkString(data.value[1].value))
+                await self.__send_data(writer, RESPBulkString(value=data.value[1].value))
 
             case RedisCommand.SET:
                 key = data.value[1].value
@@ -267,9 +274,9 @@ class RedisServer:
                         args[arg_name] = True
                         i = i + 1
                     else:
-                        await self.__send_data(writer, RESPSimpleString("ERR syntax error"))
+                        await self.__send_data(writer, RESPSimpleString(value="ERR syntax error"))
 
-                resp = RESPSimpleString(self.__data_store.set(key, value, **args))
+                resp = RESPSimpleString(value=self.__data_store.set(key, value, **args))
                 if not is_master_command:
                     await self.__send_data(writer, resp)
 
@@ -278,20 +285,20 @@ class RedisServer:
 
             case RedisCommand.GET:
                 key = data.value[1].value
-                await self.__send_data(writer, RESPBulkString(self.__data_store.get(key)))
+                await self.__send_data(writer, RESPBulkString(value=self.__data_store.get(key)))
 
             case RedisCommand.CONFIG:
                 method = data.value[1].value.lower()
                 if method == RedisCommand.GET:
                     param = data.value[2].value.lower()
                     if param == "dir":
-                        await self.__send_data(writer, RESPArray([RESPBulkString("dir"), RESPBulkString(self.__data_store.dir)]))
+                        await self.__send_data(writer, RESPArray(value=[RESPBulkString(value="dir"), RESPBulkString(value=self.__data_store.dir)]))
                     if param == "dbfilename":
-                        await self.__send_data(writer, RESPArray([RESPBulkString("dbfilename"), RESPBulkString(self.__data_store.dbfilename)]))
+                        await self.__send_data(writer, RESPArray(value=[RESPBulkString(value="dbfilename"), RESPBulkString(value=self.__data_store.dbfilename)]))
 
             case RedisCommand.KEYS:
                 pattern = data.value[1].value
-                await self.__send_data(writer, RESPArray([RESPBulkString(key) for key in self.__data_store.keys(pattern)]))
+                await self.__send_data(writer, RESPArray(value=[RESPBulkString(value=key) for key in self.__data_store.keys(pattern)]))
 
             case RedisCommand.INFO:
                 await self.__send_data(writer, self.__repl_info.serialize())
@@ -310,10 +317,10 @@ class RedisServer:
                     else:
                         raise NotImplementedError(f"REPLCONF {attr} is not implemented")
 
-                    await self.__send_data(writer, RESPSimpleString("OK"))
+                    await self.__send_data(writer, RESPSimpleString(value="OK"))
                 else:
                     if attr.lower() == "getack":
-                        await self.__send_data(writer, RESPArray([RESPBulkString("REPLCONF"), RESPBulkString("ACK"), RESPBulkString(str(self.__repl_ack_offset))]))
+                        await self.__send_data(writer, RESPArray(value=[RESPBulkString(value="REPLCONF"), RESPBulkString(value="ACK"), RESPBulkString(value=str(self.__repl_ack_offset))]))
                     else:
                         raise NotImplementedError(f"REPLCONF {attr} is not implemented")
 
@@ -325,12 +332,15 @@ class RedisServer:
                     raise NotImplementedError("Only PSYNC with ? and -1 is supported")
 
                 rdb_content = self.__data_store.dump_to_rdb()
-                await self.__send_data(writer, RESPSimpleString(f"FULLRESYNC {self.__repl_info.master_replid} {self.__repl_info.master_repl_offset}"))
-                await self.__send_data(writer, RESPBytesLength(len(rdb_content)))
+                await self.__send_data(writer, RESPSimpleString(value=f"FULLRESYNC {self.__repl_info.master_replid} {self.__repl_info.master_repl_offset}"))
+                await self.__send_data(writer, RESPBytesLength(value=len(rdb_content)))
                 await self.__send_data(writer, rdb_content)
 
             case _:
-                await self.__send_data(writer, RESPSimpleString("ERR unknown command"))
+                await self.__send_data(writer, RESPSimpleString(value="ERR unknown command"))
+
+        if is_master_command:
+            self.__repl_ack_offset = self.__repl_ack_offset + data.bytes_length
 
     async def __send_data(self, writer: asyncio.StreamWriter, data: RESPObject | bytes) -> None:
         print(f"Sending data: {data}")

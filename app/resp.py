@@ -39,6 +39,12 @@ class RESPObjectType(StrEnum):
 class RESPObject(ABC):
     type: RESPObjectType
     value: Optional[Any]
+    bytes_length: int
+
+    def __init__(self, type: RESPObjectType, value: Any, bytes_length: int = 0):
+        self.type = type
+        self.value = value
+        self.bytes_length = bytes_length
 
     @property
     def minimal_protocol_version(self) -> RESPProtocolVersion:
@@ -79,11 +85,22 @@ class RESPObject(ABC):
 
 
 @dataclass
-class RESPSimpleString(RESPObject):
-    value: str
+class RESPBytesLength(RESPObject):
+    def __init__(self, **kwargs):
+        """
+        Custom RESP byte length object for RDB file transfer between replicas
+        :param value:
+        """
+        super().__init__(type=RESPObjectType.BULK_STRING, **kwargs)
 
-    def __init__(self, value: str):
-        super().__init__(type=RESPObjectType.SIMPLE_STRING, value=value)
+    def serialize(self) -> bytes:
+        return f"${self.value}\r\n".encode()
+
+
+@dataclass
+class RESPSimpleString(RESPObject):
+    def __init__(self, **kwargs):
+        super().__init__(type=RESPObjectType.SIMPLE_STRING, **kwargs)
 
     def serialize(self) -> bytes:
         return f"+{self.value}\r\n".encode()
@@ -91,10 +108,8 @@ class RESPSimpleString(RESPObject):
 
 @dataclass
 class RESPError(RESPObject):
-    value: str
-
-    def __init__(self, value: str):
-        super().__init__(type=RESPObjectType.SIMPLE_ERROR, value=value)
+    def __init__(self, **kwargs):
+        super().__init__(type=RESPObjectType.SIMPLE_ERROR, **kwargs)
 
     def serialize(self) -> bytes:
         return f"-{self.value}\r\n".encode()
@@ -102,10 +117,8 @@ class RESPError(RESPObject):
 
 @dataclass
 class RESPInteger(RESPObject):
-    value: int
-
-    def __init__(self, value: int):
-        super().__init__(type=RESPObjectType.INTEGER, value=value)
+    def __init__(self, **kwargs):
+        super().__init__(type=RESPObjectType.INTEGER, **kwargs)
 
     def serialize(self) -> bytes:
         return f":{self.value}\r\n".encode()
@@ -113,10 +126,8 @@ class RESPInteger(RESPObject):
 
 @dataclass
 class RESPBulkString(RESPObject):
-    value: Optional[str]
-
-    def __init__(self, value: Optional[str]):
-        super().__init__(type=RESPObjectType.BULK_STRING, value=value)
+    def __init__(self, **kwargs):
+        super().__init__(type=RESPObjectType.BULK_STRING, **kwargs)
 
     def serialize(self) -> bytes:
         if self.value is None:
@@ -126,10 +137,8 @@ class RESPBulkString(RESPObject):
 
 @dataclass
 class RESPBulkBytes(RESPObject):
-    value: Optional[bytes]
-
-    def __init__(self, value: Optional[bytes]):
-        super().__init__(type=RESPObjectType.BULK_BYTES, value=value)
+    def __init__(self, **kwargs):
+        super().__init__(type=RESPObjectType.BULK_BYTES, **kwargs)
 
     def serialize(self) -> bytes:
         if self.value is None:
@@ -139,10 +148,8 @@ class RESPBulkBytes(RESPObject):
 
 @dataclass
 class RESPArray(RESPObject):
-    value: List[RESPObject]
-
-    def __init__(self, value: List[RESPObject]):
-        super().__init__(type=RESPObjectType.ARRAY, value=value)
+    def __init__(self, **kwargs):
+        super().__init__(type=RESPObjectType.ARRAY, **kwargs)
 
     def serialize(self) -> bytes:
         if not self.value:
@@ -151,21 +158,6 @@ class RESPArray(RESPObject):
         for item in self.value:
             parts.append(item.serialize())
         return b"".join(parts)
-
-
-@dataclass
-class RESPBytesLength(RESPObject):
-    value = int
-
-    def __init__(self, value: int):
-        """
-        Custom RESP byte length object for RDB file transfer between replicas
-        :param value:
-        """
-        super().__init__(type=RESPObjectType.BULK_STRING, value=value)
-
-    def serialize(self) -> bytes:
-        return f"${self.value}\r\n".encode()
 
 
 class RESPParser:
@@ -266,24 +258,24 @@ class RESPParser:
             lines = data.split(b'\r\n')
 
             if resp_type == RESPObjectType.SIMPLE_STRING:
-                return RESPSimpleString(lines[0][1:].decode())
+                return RESPSimpleString(value=lines[0][1:].decode(), bytes_length=len(data))
 
             elif resp_type == RESPObjectType.SIMPLE_ERROR:
-                return RESPError(lines[0][1:].decode())
+                return RESPError(value=lines[0][1:].decode(), bytes_length=len(data))
 
             elif resp_type == RESPObjectType.INTEGER:
-                return RESPInteger(int(lines[0][1:]))
+                return RESPInteger(value=int(lines[0][1:]), bytes_length=len(data))
 
             elif resp_type == RESPObjectType.BULK_STRING:
                 length = int(lines[0][1:])
                 if length == -1:
-                    return RESPBulkString(None)
-                return RESPBulkBytes(lines[1]) if is_not_end_with_crlf else RESPBulkString(lines[1].decode())
+                    return RESPBulkString(value=None)
+                return RESPBulkBytes(value=lines[1], bytes_length=len(data)) if is_not_end_with_crlf else RESPBulkString(value=lines[1].decode(), bytes_length=len(data))
 
             elif resp_type == RESPObjectType.ARRAY:
                 length = int(lines[0][1:])
                 if length == 0:
-                    return RESPArray([])
+                    return RESPArray(value=[], bytes_length=len(data))
 
                 elements = []
                 current_data = data[data.find(b'\r\n') + 2:]
@@ -295,7 +287,7 @@ class RESPParser:
                     if element:
                         elements.append(element)
                     current_data = current_data[element_size:]
-                return RESPArray(elements)
+                return RESPArray(value=elements, bytes_length=len(data))
 
         except (ValueError, IndexError) as e:
             print(f"Error parsing RESP data: {e}")
