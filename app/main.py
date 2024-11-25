@@ -171,27 +171,30 @@ class RedisServer:
             await writer.drain()
             recv_data = await reader.read(1024)
             print(f"PSYNC response: {recv_data}")
-            if recv_data.startswith(b"+FULLRESYNC"):
-                parts = recv_data.split(b'\r\n')
-                master_replid, master_repl_offset = parts[0].split(b' ')[1:]
-                self.__repl_info.master_replid = master_replid.decode()
-                self.__repl_info.master_repl_offset = int(master_repl_offset)
-                print(f"Master replication ID: {self.__repl_info.master_replid}")
-                print(f"Master replication offset: {self.__repl_info.master_repl_offset}")
+            recv_resp = self.resp_parser.parse(recv_data)
+            print(f"PSYNC response parsed: {recv_resp}")
 
-                rdb_length = int(parts[1][1:])
-                rdb_data = parts[2][:rdb_length]
-
-                if len(parts[2]) > rdb_length:
-                    remaining_data = parts[2][rdb_length:] + b'\r\n' + b'\r\n'.join(parts[3:])
-                    print(f"Remaining data: {remaining_data}")
-                    commands = self.resp_parser.parse(remaining_data)
-
-                    for data in commands:
-                        if data.type == RESPObjectType.ARRAY:
-                            await self.handle_command(writer, data, len(remaining_data), True)
-                        else:
-                            raise NotImplementedError(f"Unsupported command: {data}")
+            # if recv_data.startswith(b"+FULLRESYNC"):
+            #     parts = recv_data.split(b'\r\n')
+            #     master_replid, master_repl_offset = parts[0].split(b' ')[1:]
+            #     self.__repl_info.master_replid = master_replid.decode()
+            #     self.__repl_info.master_repl_offset = int(master_repl_offset)
+            #     print(f"Master replication ID: {self.__repl_info.master_replid}")
+            #     print(f"Master replication offset: {self.__repl_info.master_repl_offset}")
+            #
+            #     rdb_length = int(parts[1][1:])
+            #     rdb_data = parts[2][:rdb_length]
+            #
+            #     if len(parts[2]) > rdb_length:
+            #         remaining_data = parts[2][rdb_length:] + b'\r\n' + b'\r\n'.join(parts[3:])
+            #         print(f"Remaining data: {remaining_data}")
+            #         commands = self.resp_parser.parse(remaining_data)
+            #
+            #         for data in commands:
+            #             if data.type == RESPObjectType.ARRAY:
+            #                 await self.handle_command(writer, data, len(remaining_data), True)
+            #             else:
+            #                 raise NotImplementedError(f"Unsupported command: {data}")
 
             # Store the connection
             self.__master_connection = (reader, writer)
