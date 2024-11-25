@@ -144,8 +144,8 @@ class RESPBytes(RESPObject):
         super().__init__(type=RESPObjectType.BULK_STRING, value=value)
 
     def serialize(self) -> bytes:
-        print(str(self.value))
-        return f"${len(self.value)}\r\n{str(self.value)}".encode()
+        print(repr(self.value)[2: -1])
+        return f"${len(self.value)}\r\n{repr(self.value)[2: -1]}".encode()
 
 
 class RESPParser:
