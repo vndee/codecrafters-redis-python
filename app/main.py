@@ -213,6 +213,10 @@ class RedisServer:
                         port = int(data.value[2].value)
                         self.__slave_address.append((self.host, port))
                         self.__repl_info.connected_slaves = len(self.__slave_address)
+                    elif attr == "capa":
+                        capa = data.value[2].value.lower()
+                        if capa == "psync2":
+                            pass
                     else:
                         raise NotImplementedError(f"REPLCONF {attr} is not implemented")
 
