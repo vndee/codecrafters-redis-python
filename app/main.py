@@ -242,7 +242,8 @@ class RedisServer:
         command = data.value[0].value.lower()
         match command:
             case RedisCommand.PING:
-                await self.__send_data(writer, RESPSimpleString("PONG"))
+                if not is_master_command:
+                    await self.__send_data(writer, RESPSimpleString("PONG"))
 
             case RedisCommand.ECHO:
                 await self.__send_data(writer, RESPBulkString(data.value[1].value))
