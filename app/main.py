@@ -213,7 +213,7 @@ class RedisServer:
                 if isinstance(data, RESPSimpleString) and data.value == "PING":
                     await self.__send_data(writer, RESPSimpleString("PONG"))
                 elif data.type == RESPObjectType.ARRAY:
-                    await self.handle_command(writer, data)
+                    await self.handle_command(writer, data, True)
                 else:
                     raise NotImplementedError(f"Unsupported command: {data}")
 
@@ -252,7 +252,7 @@ class RedisServer:
             except Exception as e:
                 print(f"Error sending data to slave: {str(e)}")
 
-    async def handle_command(self, writer: asyncio.StreamWriter, data: RESPObject) -> None:
+    async def handle_command(self, writer: asyncio.StreamWriter, data: RESPObject, is_master_command: bool = False) -> None:
         if not isinstance(data, RESPArray):
             await self.__send_data(writer, RESPSimpleString("ERR unknown command"))
 
@@ -281,7 +281,10 @@ class RedisServer:
                     else:
                         await self.__send_data(writer, RESPSimpleString("ERR syntax error"))
 
-                await self.__send_data(writer, RESPSimpleString(self.__data_store.set(key, value, **args)))
+                resp = RESPSimpleString(self.__data_store.set(key, value, **args))
+                if not is_master_command:
+                    await self.__send_data(writer, resp)
+
                 if self.__repl_info.role == RedisReplicationRole.MASTER:
                     await self.__propagate_to_slaves(data)
 
@@ -366,7 +369,7 @@ class RedisServer:
                 elif data.type == RESPObjectType.ARRAY:
                     await self.handle_command(writer, data)
                 else:
-                    print(f"Received unknown command: {data}")
+                    print(f"Received unknown command: {data.serialize()}")
 
         except Exception as e:
             print(f"Error handling client {addr}: {str(e)}")
