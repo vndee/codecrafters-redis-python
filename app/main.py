@@ -84,8 +84,13 @@ class RedisServer:
         self.__master_connection = None
 
         self.__replicaof = replicaof
-        if replicaof:
-            asyncio.create_task(self.__ping_master_node(replicaof))
+
+    async def initialize(self):
+        """
+        Perform async initialization tasks.
+        """
+        if self.__replicaof:
+            await self.__ping_master_node(self.__replicaof)
 
     @staticmethod
     def __generate_master_replid() -> str:
@@ -332,6 +337,8 @@ class RedisServer:
                 print(f"Error while closing connection: {str(e)}")
 
     async def start(self):
+        await self.initialize()
+
         server = await asyncio.start_server(
             self.handle_client,
             self.host,
