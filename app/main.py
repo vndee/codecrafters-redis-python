@@ -107,39 +107,81 @@ class RedisServer:
         client.send(data.serialize())
         return self.resp_parser.parse(client.recv(1024))
 
-    def __ping_master_node(self, master_address: str) -> bool:
+    import asyncio
+    from typing import Optional
+
+    async def __ping_master_node(self, master_address: str) -> bool:
         """
-        Ping the master node to check if it is alive.
+        Ping the master node asynchronously to check if it is alive.
         :param master_address: Address of the master node.
         :return: True if the master node is alive, False otherwise.
         """
         master_host, master_port = master_address.split(" ")
+
         try:
-            client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            client.connect((master_host, int(master_port)))
-            response = self.__send_socket(client, RESPArray([RESPBulkString("PING")]))
-            if response.serialize() != b"+PONG\r\n":
+            reader, writer = await asyncio.open_connection(
+                master_host,
+                int(master_port)
+            )
+
+            async def send_command(command: RESPArray) -> Optional[bytes]:
+                try:
+                    writer.write(command.serialize())
+                    await writer.drain()
+                    return await reader.readline()
+                except Exception as e:
+                    print(f"Error sending command: {e}")
+                    return None
+
+            # Send PING
+            response = await send_command(RESPArray([RESPBulkString("PING")]))
+            if not response or response != b"+PONG\r\n":
+                writer.close()
+                await writer.wait_closed()
                 return False
 
-            replconf_listening_port = RESPArray([RESPBulkString("REPLCONF"), RESPBulkString("listening-port"), RESPBulkString(str(self.port))])
-            response = self.__send_socket(client, replconf_listening_port)
-            if response.serialize() != b"+OK\r\n":
+            # Send REPLCONF listening-port
+            replconf_listening_port = RESPArray([
+                RESPBulkString("REPLCONF"),
+                RESPBulkString("listening-port"),
+                RESPBulkString(str(self.port))
+            ])
+            response = await send_command(replconf_listening_port)
+            if not response or response != b"+OK\r\n":
+                writer.close()
+                await writer.wait_closed()
                 return False
 
-            replconf_capa_psync2 = RESPArray([RESPBulkString("REPLCONF"), RESPBulkString("capa"), RESPBulkString("psync2")])
-            response = self.__send_socket(client, replconf_capa_psync2)
-            if response.serialize() != b"+OK\r\n":
+            # Send REPLCONF capa psync2
+            replconf_capa_psync2 = RESPArray([
+                RESPBulkString("REPLCONF"),
+                RESPBulkString("capa"),
+                RESPBulkString("psync2")
+            ])
+            response = await send_command(replconf_capa_psync2)
+            if not response or response != b"+OK\r\n":
+                writer.close()
+                await writer.wait_closed()
                 return False
 
-            psync_command = RESPArray([RESPBulkString("PSYNC"), RESPBulkString("?"), RESPBulkString("-1")])
-            client.send(psync_command.serialize())
-            recv_data = client.recv(1024)
+            # Send PSYNC command
+            psync_command = RESPArray([
+                RESPBulkString("PSYNC"),
+                RESPBulkString("?"),
+                RESPBulkString("-1")
+            ])
+            writer.write(psync_command.serialize())
+            await writer.drain()
+            recv_data = await reader.read(1024)
             print(f"PSYNC response: {recv_data.split(b';')}")
             # TODO: implement PSYNC response parsing
 
-            self.__master_connection = client
+            # Store the connection
+            self.__master_connection = (reader, writer)
             return True
-        except Exception as _:
+
+        except Exception as e:
+            print(f"Connection error: {e}")
             return False
 
     def __send_to_master(self, data: RESPObject) -> RESPObject:
