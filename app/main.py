@@ -174,8 +174,7 @@ class RedisServer:
 
         for slave_connection in self.__slave_connections:
             try:
-                slave_connection.write(data.serialize())
-                await slave_connection.drain()
+                await self.__send_data(slave_connection, data)
             except Exception as e:
                 print(f"Error sending data to slave: {str(e)}")
 
@@ -209,8 +208,8 @@ class RedisServer:
                         await self.__send_data(writer, RESPSimpleString("ERR syntax error"))
 
                 await self.__send_data(writer, RESPSimpleString(self.__data_store.set(key, value, **args)))
-                # if self.__repl_info.role == RedisReplicationRole.MASTER:
-                #     self.__propagate_to_slaves(data)
+                if self.__repl_info.role == RedisReplicationRole.MASTER:
+                    self.__propagate_to_slaves(data)
 
             case RedisCommand.GET:
                 key = data.value[1].value
