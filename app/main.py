@@ -181,7 +181,7 @@ class RedisServer:
                 rdb_length = int(parts[1][1:])
                 rdb_data = parts[2][:rdb_length]
 
-                remaining_data = parts[2][rdb_length:]
+                remaining_data = parts[2][rdb_length:] + b'\r\n' + b'\r\n'.join(parts[3:])
                 print(f"Remaining data: {remaining_data}")
                 commands = self.resp_parser.parse(remaining_data)
 
