@@ -132,7 +132,9 @@ class RedisServer:
                 return False
 
             psync_command = RESPArray([RESPBulkString("PSYNC"), RESPBulkString("?"), RESPBulkString("-1")])
-            response = self.__send_socket(client, psync_command)
+            client.send(psync_command.serialize())
+            recv_data = client.recv(1024)
+            print(f"PSYNC response: {recv_data}")
             # TODO: implement PSYNC response parsing
 
             self.__master_connection = client
@@ -226,7 +228,7 @@ class RedisServer:
                     attr = data.value[1].value.lower()
                     if attr == "listening-port":
                         self.__slave_connections.add(writer)
-                        print(f"Connected slaves: {writer.get_extra_info('peername')}")
+                        print(f"New connected slaves: {writer.get_extra_info('peername')} - listening port: {data.value[2].value}")
                     elif attr == "capa":
                         capa = data.value[2].value.lower()
                         if capa == "psync2":
@@ -251,6 +253,7 @@ class RedisServer:
                 await self.__send_data(writer, RESPSimpleString("ERR unknown command"))
 
     async def __send_data(self, writer: asyncio.StreamWriter, data: RESPObject | bytes) -> None:
+        print(f"Sending data: {data}")
         if isinstance(data, RESPObject):
             writer.write(data.serialize())
         elif isinstance(data, bytes):
