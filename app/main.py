@@ -170,7 +170,6 @@ class RedisServer:
             writer.write(psync_command.serialize())
             await writer.drain()
             recv_data = await reader.read(1024)
-            print(f"PSYNC response: {recv_data}")
             recv_resp = self.resp_parser.parse(recv_data)
             print(f"PSYNC response parsed: {recv_resp}")
 
@@ -209,7 +208,7 @@ class RedisServer:
 
                 for cmd in commands:
                     if isinstance(cmd, RESPSimpleString) and cmd.value == "PING":
-                        await self.__send_data(writer, RESPSimpleString("PONG"))
+                        # await self.__send_data(writer, RESPSimpleString("PONG"))
                         self.__repl_ack_offset = self.__repl_ack_offset + len(data)
                     elif cmd.type == RESPObjectType.ARRAY:
                         await self.handle_command(writer, cmd, len(data), True)
