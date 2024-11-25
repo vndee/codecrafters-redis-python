@@ -161,17 +161,6 @@ class RedisServer:
         Propagate the data to all connected slaves.
         :param data: Data to propagate.
         """
-        # for slave_address in self.__slave_address:
-        #     try:
-        #         slave_host, slave_port = slave_address
-        #         client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        #         client.connect((slave_host, slave_port))
-        #         client.send(data.serialize())
-        #         client.recv(1024)
-        #         client.close()
-        #     except Exception as e:
-        #         print(f"Error sending data to slave {slave_address}: {str(e)}")
-
         for slave_connection in self.__slave_connections:
             try:
                 await self.__send_data(slave_connection, data)
@@ -223,8 +212,8 @@ class RedisServer:
                         await self.__send_data(writer, RESPArray([RESPBulkString("dir"), RESPBulkString(self.__data_store.dir)]))
                     if param == "dbfilename":
                         await self.__send_data(writer, RESPArray([RESPBulkString("dbfilename"), RESPBulkString(self.__data_store.dbfilename)]))
-                    else:
-                        await self.__send_data(writer, RESPSimpleString("ERR invalid parameter"))
+                    # else:
+                    #     await self.__send_data(writer, RESPSimpleString("ERR invalid parameter"))
 
             case RedisCommand.KEYS:
                 pattern = data.value[1].value
