@@ -459,7 +459,7 @@ class RedisServer:
                 pivot = len(stream_args) >> 1
                 streams = stream_args[: pivot + 1]
                 ids = stream_args[pivot + 1:]
-                print(f"pivot: {pivot}, streams: {streams}, ids: {ids}")
+                print(f"pivot: {pivot}, streams: {streams}, ids: {ids}, stream_args: {stream_args}")
 
             case _:
                 await self.__send_data(writer, RESPSimpleString(value="ERR unknown command"))
