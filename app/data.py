@@ -425,14 +425,14 @@ class RedisDataStore:
             lower_bound = f"{lower_bound}-0"
         lower_bound_timestamp_ms, lower_bound_seq = lower_bound.split("-")
         lower_bound_timestamp_ms, lower_bound_seq = int(lower_bound_timestamp_ms), int(lower_bound_seq)
-
+        print(f"Lower bound: {lower_bound_timestamp_ms}, {lower_bound_seq}")
         if "_" not in upper_bound:
             upper_bound_timestamp_ms = int(upper_bound)
             upper_bound_timestamp_ms, upper_bound_seq = int(upper_bound_timestamp_ms), int(float("inf"))
         else:
             upper_bound_timestamp_ms, upper_bound_seq = upper_bound.split("-")
             upper_bound_timestamp_ms, upper_bound_seq = int(upper_bound_timestamp_ms), int(upper_bound_seq)
-
+        print(f"Upper bound: {upper_bound_timestamp_ms}, {upper_bound_seq}")
         if lower_bound_timestamp_ms < 0 or lower_bound_seq < 0:
             raise RedisError("ERR The ID specified in XRANGE must be greater than 0-0")
 
@@ -441,7 +441,7 @@ class RedisDataStore:
 
         if lower_bound_timestamp_ms == upper_bound_timestamp_ms and lower_bound_seq > upper_bound_seq:
             raise RedisError("ERR The ID specified in XRANGE is greater than the target stream top item")
-        print(f"XRANGE: {lower_bound_timestamp_ms}, {lower_bound_seq}, {upper_bound_timestamp_ms}, {upper_bound_seq}")
+
         result = RESPArray(value=[])
         for id, fields in stream.value:
             timestamp_ms, seq = id.split("-")
