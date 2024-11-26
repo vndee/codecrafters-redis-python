@@ -449,9 +449,11 @@ class RedisServer:
                 print(stream_args)
 
                 stream_idx = self.find_index_in_list("streams", stream_args)
-                diff_idx = max(self.find_index_in_list("count", stream_args) + 1, self.find_index_in_list("block", stream_args) + 1)
+                diff_idx = max(self.find_index_in_list("count", stream_args), self.find_index_in_list("block", stream_args))
                 if diff_idx < stream_idx:
                     diff_idx = len(stream_args)
+                else:
+                    diff_idx = diff_idx + 1
 
                 print(f"stream_idx: {self.find_index_in_list('streams', stream_args)}")
                 print(f"diff_idx: {self.find_index_in_list('count', stream_args)}")
