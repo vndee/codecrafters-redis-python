@@ -724,6 +724,7 @@ class RedisServer:
                     key = data.value[1].value  # type: ignore[index]
                     if not is_return_resp:
                         await self.__send_data(writer, self.__data_store.incr(key))
+                        return None
                     else:
                         return self.__data_store.incr(key)
 
