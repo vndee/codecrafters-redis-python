@@ -248,7 +248,7 @@ class RedisDataStore:
     def set(
         self,
         key: str,
-        value: Union[RedisInt, RedisString, RedisList, RedisSet, RedisZSet, RedisHash, RedisNone],
+        value: Union[RedisInt, RedisString],
         ex: Optional[int] = None,
         px: Optional[int] = None,
         exat: Optional[int] = None,
@@ -300,7 +300,11 @@ class RedisDataStore:
         if keepttl and key in self.__data_dict[self.database_idx]:
             expire_at = self.__data_dict[self.database_idx][key].expire_at
 
-        data_obj = RedisDataObject.create_string(value, expire_at)
+        if isinstance(value, int):
+            data_obj = RedisDataObject.create_int(value, expire_at)
+        else:
+            data_obj = RedisDataObject.create_string(value, expire_at)
+
         self.__data_dict[self.database_idx][key] = data_obj
 
         return old_value if get else "OK"
