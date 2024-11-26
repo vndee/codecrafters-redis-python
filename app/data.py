@@ -314,7 +314,7 @@ class RedisDataStore:
             return None
 
         expire_at = None
-        current_time_ms = int(time.time()) * 1000
+        current_time_ms = time.time() * 1000
 
         if ex:
             expire_at = current_time_ms + ex * 1000
