@@ -318,8 +318,6 @@ class RedisServer:
                 await self.__send_data(writer, RESPSimpleString(value="QUEUED"))
                 return None
 
-            resp: RESPObject
-
             match command:
                 case RedisCommand.PING:
                     if not is_master_command:
