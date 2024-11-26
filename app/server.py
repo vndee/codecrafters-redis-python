@@ -481,9 +481,9 @@ class RedisServer:
                     fields = data.value[3:]
 
                     if not is_return_resp:
-                        await self.__send_data(writer, RESPBulkString(value=self.__data_store.xadd(stream, id, fields)))
+                        await self.__send_data(writer, self.__data_store.xadd(stream, id, fields))
                     else:
-                        return RESPBulkString(value=self.__data_store.xadd(stream, id, fields))
+                        return self.__data_store.xadd(stream, id, fields)
 
                 case RedisCommand.XRANGE:
                     stream = data.value[1].value

@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from typing import Dict, Any, Optional, List, Set, Union
 
 from app.rdb import RDBParser, RDBEncoding
-from app.resp import RESPArray, RESPBulkString, RESPObject, RESPInteger, RESPNull
+from app.resp import RESPArray, RESPBulkString, RESPObject, RESPInteger, RESPNull, RESPSimpleError
 
 
 class RedisCommand(StrEnum):
@@ -379,7 +379,7 @@ class RedisDataStore:
 
         return data_obj.data_type.name.lower()
 
-    def xadd(self, key: str, id: str, fields: Dict[str, str]):
+    def xadd(self, key: str, id: str, fields: Dict[str, str]) -> RESPObject:
         """
         Appends a new entry to a stream.
         :param key: str
@@ -392,7 +392,7 @@ class RedisDataStore:
 
         stream = self.__data_dict[self.database_idx][key]
         if stream.data_type != RDBEncoding.STREAM:
-            raise RedisError("ERR: Operation against a key holding the wrong kind of value")
+            return RESPSimpleError(value="ERR: Operation against a key holding the wrong kind of value")
 
         prev_id, _ = stream.value[-1] if stream.value else ("0-0", {})
         prev_timestamp_ms, prev_seq = prev_id.split("-")
@@ -414,19 +414,19 @@ class RedisDataStore:
 
         current_timestamp_ms, current_seq = int(current_timestamp_ms), int(current_seq)
         if current_timestamp_ms <= 0 and current_seq <= 0:
-            raise RedisError("ERR The ID specified in XADD must be greater than 0-0")
+            return RESPSimpleError(value="ERR The ID specified in XADD must be greater than 0-0")
 
         if current_timestamp_ms < prev_timestamp_ms:
-            raise RedisError("ERR The ID specified in XADD is equal or smaller than the target stream top item")
+            return RESPSimpleError(value="ERR The ID specified in XADD is equal or smaller than the target stream top item")
 
         if current_timestamp_ms == prev_timestamp_ms and current_seq <= prev_seq:
-            raise RedisError("ERR The ID specified in XADD is equal or smaller than the target stream top item")
+            return RESPSimpleError(value="ERR The ID specified in XADD is equal or smaller than the target stream top item")
 
         new_id = f"{current_timestamp_ms}-{current_seq}"
         stream.value.append((new_id, fields))
-        return new_id
+        return RESPBulkString(value=new_id)
 
-    def xrange(self, key: str, lower_bound: str, upper_bound: str, count: Optional[int] = None) -> RESPArray:
+    def xrange(self, key: str, lower_bound: str, upper_bound: str, count: Optional[int] = None) -> RESPObject:
         """
         Return a range of elements in a stream, with IDs matching the specified IDs interval.
         :param key: str
@@ -440,7 +440,7 @@ class RedisDataStore:
 
         stream = self.__data_dict[self.database_idx][key]
         if stream.data_type != RDBEncoding.STREAM:
-            raise RedisError("ERR: Operation against a key holding the wrong kind of value")
+            return RESPSimpleError(value="ERR: Operation against a key holding the wrong kind of value")
 
         if "-" not in lower_bound:
             lower_bound = f"{lower_bound}-0"
@@ -456,13 +456,13 @@ class RedisDataStore:
             upper_bound_timestamp_ms, upper_bound_seq = int(upper_bound_timestamp_ms), int(upper_bound_seq)
 
         if lower_bound_timestamp_ms < 0 or lower_bound_seq < 0:
-            raise RedisError("ERR The ID specified in XRANGE must be greater than 0-0")
+            return RESPSimpleError(value="ERR The ID specified in XRANGE must be greater than 0-0")
 
         if lower_bound_timestamp_ms > upper_bound_timestamp_ms:
-            raise RedisError("ERR The ID specified in XRANGE is greater than the target stream top item")
+            return RESPSimpleError(value="ERR The ID specified in XRANGE is greater than the target stream top item")
 
         if lower_bound_timestamp_ms == upper_bound_timestamp_ms and lower_bound_seq > upper_bound_seq:
-            raise RedisError("ERR The ID specified in XRANGE is greater than the target stream top item")
+            return RESPSimpleError(value="ERR The ID specified in XRANGE is greater than the target stream top item")
 
         result = RESPArray(value=[])
         for id, fields in stream.value:
@@ -510,7 +510,7 @@ class RedisDataStore:
 
         return stream.value[-1][0]
 
-    def xread(self, keys: list, ids: list) -> RESPArray | RESPBulkString:
+    def xread(self, keys: list, ids: list) -> RESPObject:
         """
         Return never-ending stream of data from the stream.
         :param keys:
@@ -524,7 +524,7 @@ class RedisDataStore:
 
             stream = self.__data_dict[self.database_idx][key]
             if stream.data_type != RDBEncoding.STREAM:
-                raise RedisError("ERR: Operation against a key holding the wrong kind of value")
+                return RESPSimpleError(value="ERR: Operation against a key holding the wrong kind of value")
 
             if id == "0":
                 continue
@@ -586,9 +586,8 @@ class RedisDataStore:
             return RESPInteger(value=1)
 
         data_obj = self.__data_dict[self.database_idx][key]
-        print(f"Data object: {data_obj}")
         if data_obj.data_type != RDBEncoding.STRING:
-            raise RedisError("ERR value is not an integer or out of range")
+            return RESPSimpleError(value="ERR value is not an integer or out of range")
 
         if data_obj.is_expired():
             del self.__data_dict[self.database_idx][key]
@@ -596,7 +595,7 @@ class RedisDataStore:
             return RESPInteger(value=1)
 
         if not isinstance(data_obj.value, int):
-            raise RedisError("ERR value is not an integer or out of range")
+            return RESPSimpleError(value="ERR value is not an integer or out of range")
 
         data_obj.value += 1
         return RESPInteger(value=data_obj.value)
