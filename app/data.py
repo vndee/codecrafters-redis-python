@@ -370,12 +370,12 @@ class RedisDataStore:
         if stream.data_type != RDBEncoding.STREAM:
             raise RedisError("ERR: Operation against a key holding the wrong kind of value")
 
-        prev_id, _ = stream.value[-1] if stream.value else ("0-0", {})
-        if prev_id == id:
-            raise RedisError("ERR The ID specified in XADD is equal or smaller than the target stream top item")
-
-        prev_timestamp_ms, prev_seq = prev_id.split("-")
         current_timestamp_ms, current_seq = id.split("-")
+        if current_timestamp_ms <= 0 and current_seq <= 0:
+            raise RedisError("ERR The ID specified in XADD must be greater than 0-0")
+
+        prev_id, _ = stream.value[-1] if stream.value else ("0-0", {})
+        prev_timestamp_ms, prev_seq = prev_id.split("-")
 
         if current_timestamp_ms < prev_timestamp_ms:
             raise RedisError("ERR The ID specified in XADD is equal or smaller than the target stream top item")
