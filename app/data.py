@@ -337,21 +337,19 @@ class RedisDataStore:
 
         return old_value if get else "OK"
 
-    def get(self, key: str) -> RESPBulkString | RESPNull:
+    def get(self, key: str) -> RESPBulkString:
         """
         Get the value of key. If the key does not exist the special value nil is returned.
         :param key:
         :return:
         """
         if key not in self.__data_dict[self.database_idx]:
-            # return RESPBulkString(value=None)
-            return RESPNull()
+            return RESPBulkString(value=None)
 
         data_obj = self.__data_dict[self.database_idx][key]
         if data_obj.is_expired():  # type: ignore[union-attr]
             del self.__data_dict[self.database_idx][key]
-            # return RESPBulkString(value=None)
-            return RESPNull()
+            return RESPBulkString(value=None)
 
         return RESPBulkString(value=str(data_obj.value))  # type: ignore[union-attr]
 
