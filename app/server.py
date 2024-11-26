@@ -269,20 +269,31 @@ class RedisServer:
             except Exception as e:
                 print(f"Error closing failed replica connection: {e}")
 
-    async def handle_command(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter, data: RESPObject, is_master_command: bool = False) -> None:
+    async def handle_command(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter, data: RESPObject, is_master_command: bool = False, is_return_resp: bool = False) -> None | RESPObject:
         if not isinstance(data, RESPArray):
             await self.__send_data(writer, RESPSimpleString(value="ERR unknown command"))
 
         try:
             print(f"Handling command: {data} - is_master_command: {is_master_command}")
             command = data.value[0].value.lower()
+
+            if self.__is_command_in_queue.get(writer, False) and command != RedisCommand.EXEC:
+                self.__command_queue[writer].append(data)
+                return
+
             match command:
                 case RedisCommand.PING:
                     if not is_master_command:
-                        await self.__send_data(writer, RESPSimpleString(value="PONG"))
+                        if not is_return_resp:
+                            await self.__send_data(writer, RESPSimpleString(value="PONG"))
+                        else:
+                            return RESPSimpleString(value="PONG")
 
                 case RedisCommand.ECHO:
-                    await self.__send_data(writer, RESPBulkString(value=data.value[1].value))
+                    if not is_return_resp:
+                        await self.__send_data(writer, RESPBulkString(value=data.value[1].value))
+                    else:
+                        return RESPBulkString(value=data.value[1].value)
 
                 case RedisCommand.SET:
                     key = data.value[1].value
@@ -308,27 +319,49 @@ class RedisServer:
 
                     resp = RESPSimpleString(value=self.__data_store.set(key, value, **args))
                     if not is_master_command:
-                        await self.__send_data(writer, resp)
+                        if not is_return_resp:
+                            await self.__send_data(writer, resp)
+                        else:
+                            return resp
 
                 case RedisCommand.GET:
                     key = data.value[1].value
-                    await self.__send_data(writer, self.__data_store.get(key))
+                    if not is_return_resp:
+                        await self.__send_data(writer, self.__data_store.get(key))
+                    else:
+                        return self.__data_store.get(key)
 
                 case RedisCommand.CONFIG:
                     method = data.value[1].value.lower()
                     if method == RedisCommand.GET:
                         param = data.value[2].value.lower()
                         if param == "dir":
-                            await self.__send_data(writer, RESPArray(value=[RESPBulkString(value="dir"), RESPBulkString(value=self.__data_store.dir)]))
+                            resp = RESPArray(value=[RESPBulkString(value="dir"), RESPBulkString(value=self.__data_store.dir)])
+                            if not is_return_resp:
+                                await self.__send_data(writer, resp)
+                            else:
+                                return resp
                         if param == "dbfilename":
-                            await self.__send_data(writer, RESPArray(value=[RESPBulkString(value="dbfilename"), RESPBulkString(value=self.__data_store.dbfilename)]))
+                            resp = RESPArray(value=[RESPBulkString(value="dbfilename"), RESPBulkString(value=self.__data_store.dbfilename)])
+                            if not is_return_resp:
+                                await self.__send_data(writer, resp)
+                            else:
+                                return resp
 
                 case RedisCommand.KEYS:
                     pattern = data.value[1].value
-                    await self.__send_data(writer, RESPArray(value=[RESPBulkString(value=key) for key in self.__data_store.keys(pattern)]))
+                    resp = RESPArray(value=[RESPBulkString(value=key) for key in self.__data_store.keys(pattern)])
+                    if not is_return_resp:
+                        await self.__send_data(writer, resp)
+                    else:
+                        return resp
 
                 case RedisCommand.INFO:
-                    await self.__send_data(writer, self.__repl_info.serialize())
+                    resp = self.__repl_info.serialize()
+                    if not is_return_resp:
+                        await self.__send_data(writer, resp)
+                    else:
+                        return resp
 
                 case RedisCommand.REPLCONF:
                     attr = data.value[1].value.lower()
@@ -392,19 +425,27 @@ class RedisServer:
 
                         if acked_replicas >= num_replicas:
                             print(f"Required replicas reached: {acked_replicas}")
-                            await self.__send_data(writer, RESPInteger(value=acked_replicas))
                             for replica_writer, replica_reader, current_offset in active_replicas:
                                 self.__request_acks[replica_writer.get_extra_info('peername')] = False
-                            return
+
+                            if not is_return_resp:
+                                await self.__send_data(writer, RESPInteger(value=acked_replicas))
+                                return
+                            else:
+                                return RESPInteger(value=acked_replicas)
 
                         if timeout_ms > 0:
                             elapsed_ms = (time.monotonic() - start_time) * 1000
                             if elapsed_ms >= timeout_ms:
                                 print(f"Timeout reached after {elapsed_ms}ms, returning current acks: {acked_replicas}")
-                                await self.__send_data(writer, RESPInteger(value=acked_replicas))
                                 for replica_writer, replica_reader, current_offset in active_replicas:
                                     self.__request_acks[replica_writer.get_extra_info('peername')] = False
-                                return
+
+                                if not is_return_resp:
+                                    await self.__send_data(writer, RESPInteger(value=acked_replicas))
+                                    return
+                                else:
+                                    return RESPInteger(value=acked_replicas)
 
                         # Request ACKs from unacknowledged replicas
                         for replica_writer, replica_reader, current_offset in active_replicas:
@@ -428,13 +469,20 @@ class RedisServer:
 
                 case RedisCommand.TYPE:
                     key = data.value[1].value
-                    await self.__send_data(writer, RESPSimpleString(value=self.__data_store.type(key)))
+                    if not is_return_resp:
+                        await self.__send_data(writer, RESPSimpleString(value=self.__data_store.type(key)))
+                    else:
+                        return RESPSimpleString(value=self.__data_store.type(key))
 
                 case RedisCommand.XADD:
                     stream = data.value[1].value
                     id = data.value[2].value
                     fields = data.value[3:]
-                    await self.__send_data(writer, RESPBulkString(value=self.__data_store.xadd(stream, id, fields)))
+
+                    if not is_return_resp:
+                        await self.__send_data(writer, RESPBulkString(value=self.__data_store.xadd(stream, id, fields)))
+                    else:
+                        return RESPBulkString(value=self.__data_store.xadd(stream, id, fields))
 
                 case RedisCommand.XRANGE:
                     stream = data.value[1].value
@@ -443,7 +491,10 @@ class RedisServer:
                     start = "0-0" if start == "-" else start
                     end = f"{sys.maxsize}-{sys.maxsize}" if end == "+" else end
 
-                    await self.__send_data(writer, self.__data_store.xrange(stream, start, end))
+                    if not is_return_resp:
+                        await self.__send_data(writer, self.__data_store.xrange(stream, start, end))
+                    else:
+                        return self.__data_store.xrange(stream, start, end)
 
                 case RedisCommand.XREAD:
                     stream_args = [stream.value.lower() for stream in data.value[1:]]
@@ -475,25 +526,58 @@ class RedisServer:
                     if block is not None:
                         if block > 0:
                             await asyncio.sleep(block/1000)
-                            await self.__send_data(writer, self.__data_store.xread(streams, ids))
+                            if not is_return_resp:
+                                await self.__send_data(writer, self.__data_store.xread(streams, ids))
+                                return
+                            else:
+                                return self.__data_store.xread(streams, ids)
                         elif block == 0:
                             while True:
                                 data = self.__data_store.xread(streams, ids)
                                 if data.type != RESPObjectType.BULK_STRING:
-                                    await self.__send_data(writer, data)
-                                    break
+                                    if not is_return_resp:
+                                        await self.__send_data(writer, data)
+                                        break
+                                    else:
+                                        return data
+
                                 await asyncio.sleep(0.1)
                     else:
-                        await self.__send_data(writer, self.__data_store.xread(streams, ids))
+                        if not is_return_resp:
+                            await self.__send_data(writer, self.__data_store.xread(streams, ids))
+                        else:
+                            return self.__data_store.xread(streams, ids)
 
                 case RedisCommand.INCR:
                     key = data.value[1].value
-                    await self.__send_data(writer, self.__data_store.incr(key))
+                    if not is_return_resp:
+                        await self.__send_data(writer, self.__data_store.incr(key))
+                    else:
+                        return self.__data_store.incr(key)
 
                 case RedisCommand.MULTI:
                     self.__is_command_in_queue[writer] = True
                     self.__command_queue[writer] = []
-                    await self.__send_data(writer, RESPSimpleString(value="OK"))
+
+                    if not is_return_resp:
+                        await self.__send_data(writer, RESPSimpleString(value="OK"))
+                    else:
+                        return RESPSimpleString(value="OK")
+
+                case RedisCommand.EXEC:
+                    if not self.__is_command_in_queue[writer]:
+                        await self.__send_data(writer, RESPSimpleString(value="ERR EXEC without MULTI"))
+                        return
+
+                    self.__is_command_in_queue[writer] = False
+                    commands = self.__command_queue.pop(writer, [])
+
+                    results = RESPArray(value=[])
+                    for cmd in commands:
+                        resp = await self.handle_command(reader, writer, cmd, is_return_resp=True)
+                        results.value.append(resp)
+
+                    await self.__send_data(writer, results)
 
                 case _:
                     await self.__send_data(writer, RESPSimpleString(value="ERR unknown command"))

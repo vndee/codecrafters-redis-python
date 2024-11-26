@@ -31,6 +31,7 @@ class RedisCommand(StrEnum):
     XREAD = "xread"
     INCR = "incr"
     MULTI = "multi"
+    EXEC = "exec"
 
 
 RedisInt = int
