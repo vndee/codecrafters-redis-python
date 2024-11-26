@@ -461,7 +461,7 @@ class RedisServer:
                 ids = stream_args[pivot:]
                 print(f"XREAD pivot: {pivot}, streams: {streams}, ids: {ids}, stream_args: {stream_args}")
 
-                await self.__send_data(writer, self.__data_store.xread(streams[0], ids[0]))
+                await self.__send_data(writer, self.__data_store.xread(streams, ids))
 
             case _:
                 await self.__send_data(writer, RESPSimpleString(value="ERR unknown command"))

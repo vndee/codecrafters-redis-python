@@ -472,48 +472,60 @@ class RedisDataStore:
 
         return result
 
-    def xread(self, key: str, id: str) -> RESPArray:
+    def xread(self, keys: list, ids: list) -> RESPArray:
         """
         Return never-ending stream of data from the stream.
-        :param key:
-        :param id:
+        :param keys:
+        :param ids:
         :return:
         """
-        if key not in self.__data_dict[self.database_idx]:
-            return RESPArray(value=[])
-
-        stream = self.__data_dict[self.database_idx][key]
-        if stream.data_type != RDBEncoding.STREAM:
-            raise RedisError("ERR: Operation against a key holding the wrong kind of value")
-
-        if id == "0":
-            return RESPArray(value=[])
-
-        if id == "$":
-            return RESPArray(value=[])
-
-        if "-" not in id:
-            id = f"{id}-0"
-
-        timestamp_ms, seq = id.split("-")
-        timestamp_ms, seq = int(timestamp_ms), int(seq)
-
         result = RESPArray(value=[])
-        for stream_id, fields in stream.value:
-            stream_timestamp_ms, stream_seq = stream_id.split("-")
-            stream_timestamp_ms, stream_seq = int(stream_timestamp_ms), int(stream_seq)
 
-            if stream_timestamp_ms < timestamp_ms:
+        for key, id in zip(keys, ids):
+            if key not in self.__data_dict[self.database_idx]:
                 continue
 
-            if stream_timestamp_ms == timestamp_ms and stream_seq <= seq:
+            stream = self.__data_dict[self.database_idx][key]
+            if stream.data_type != RDBEncoding.STREAM:
+                raise RedisError("ERR: Operation against a key holding the wrong kind of value")
+
+            if id == "0":
                 continue
+
+            if id == "$":
+                continue
+
+            if "-" not in id:
+                id = f"{id}-0"
+
+            timestamp_ms, seq = id.split("-")
+            timestamp_ms, seq = int(timestamp_ms), int(seq)
+
+            stream_result = RESPArray(value=[])
+            for stream_id, fields in stream.value:
+                stream_timestamp_ms, stream_seq = stream_id.split("-")
+                stream_timestamp_ms, stream_seq = int(stream_timestamp_ms), int(stream_seq)
+
+                if stream_timestamp_ms < timestamp_ms:
+                    continue
+
+                if stream_timestamp_ms == timestamp_ms and stream_seq <= seq:
+                    continue
+
+                stream_result.value.append(
+                    RESPArray(
+                        value=[
+                            RESPBulkString(value=stream_id),
+                            RESPArray(value=fields)
+                        ]
+                    )
+                )
 
             result.value.append(
                 RESPArray(
                     value=[
-                        RESPBulkString(value=stream_id),
-                        RESPArray(value=fields)
+                        RESPBulkString(value=key),
+                        stream_result
                     ]
                 )
             )
