@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from typing import Dict, Any, Optional, List, Set, Union
 
 from app.rdb import RDBParser, RDBEncoding
-from app.resp import RESPArray, RESPBulkString
+from app.resp import RESPArray, RESPBulkString, RESPObject, RESPInteger
 
 
 class RedisCommand(StrEnum):
@@ -29,8 +29,10 @@ class RedisCommand(StrEnum):
     XADD = "xadd"
     XRANGE = "xrange"
     XREAD = "xread"
+    INCR = "incr"
 
 
+RedisInt = int
 RedisString = str
 RedisList = List[Any]
 RedisSet = Set[Any]
@@ -55,11 +57,19 @@ class RedisDataObject:
     with associated metadata
     """
     data_type: RDBEncoding
-    value: Union[RedisString, RedisList, RedisSet, RedisZSet, RedisHash, None]
+    value: Union[RedisInt, RedisString, RedisList, RedisSet, RedisZSet, RedisHash, None]
     expire_at: Optional[float] = None
 
     @classmethod
     def create_string(cls, value: RedisString, expire_at: Optional[int] = None) -> "RedisDataObject":
+        return cls(
+            data_type=RDBEncoding.STRING,
+            expire_at=expire_at,
+            value=value,
+        )
+
+    @classmethod
+    def create_int(cls, value: RedisInt, expire_at: Optional[int] = None) -> "RedisDataObject":
         return cls(
             data_type=RDBEncoding.STRING,
             expire_at=expire_at,
@@ -238,7 +248,7 @@ class RedisDataStore:
     def set(
         self,
         key: str,
-        value: Union[RedisString, RedisList, RedisSet, RedisZSet, RedisHash, RedisNone],
+        value: Union[RedisInt, RedisString, RedisList, RedisSet, RedisZSet, RedisHash, RedisNone],
         ex: Optional[int] = None,
         px: Optional[int] = None,
         exat: Optional[int] = None,
@@ -554,6 +564,31 @@ class RedisDataStore:
                 break
 
         return result if has_entries else RESPBulkString(value=None)
+
+    def incr(self, key: str) -> RESPObject:
+        """
+        Increment the integer value of a key by one.
+        :param key: str
+        :return:
+        """
+        if key not in self.__data_dict[self.database_idx]:
+            self.set(key, 1)
+            return RESPInteger(value=1)
+
+        data_obj = self.__data_dict[self.database_idx][key]
+        if data_obj.data_type != RDBEncoding.STRING:
+            raise RedisError("ERR value is not an integer or out of range")
+
+        if data_obj.is_expired():
+            del self.__data_dict[self.database_idx][key]
+            self.set(key, 1)
+            return RESPInteger(value=1)
+
+        if not isinstance(data_obj.value, int):
+            raise RedisError("ERR value is not an integer or out of range")
+
+        data_obj.value += 1
+        return RESPInteger(value=data_obj.value)
 
     def dump_to_rdb(self) -> bytes:
         """

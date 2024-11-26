@@ -485,6 +485,10 @@ class RedisServer:
                 else:
                     await self.__send_data(writer, self.__data_store.xread(streams, ids))
 
+            case RedisCommand.INCR:
+                key = data.value[1].value
+                await self.__send_data(writer, RESPInteger(value=self.__data_store.incr(key)))
+
             case _:
                 await self.__send_data(writer, RESPSimpleString(value="ERR unknown command"))
 
