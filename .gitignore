@@ -2,10 +2,11 @@
 __pycache__/
 *.py[cod]
 *$py.class
-rdb/
+rdb_example/
 # C extensions
 *.so
 
+rdb_example/
 # Distribution / packaging
 .Python
 build/

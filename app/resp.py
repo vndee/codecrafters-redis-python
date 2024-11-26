@@ -66,13 +66,11 @@ class RESPObject(ABC):
             RESPObjectType.NULL,
             RESPObjectType.BOOLEAN,
             RESPObjectType.DOUBLE,
-            RESPObjectType.BIG_NUMBER
+            RESPObjectType.BIG_NUMBER,
         }:
             return RESPObjectTypeCategory.SIMPLE
 
-        elif self.type in {
-            RESPObjectType.BULK_BYTES
-        }:
+        elif self.type in {RESPObjectType.BULK_BYTES}:
             return RESPObjectTypeCategory.EXTRA
 
         return RESPObjectTypeCategory.AGGREGATE
@@ -181,9 +179,10 @@ class RESPNull(RESPObject):
         return b"_\r\n"
 
 
-
 class RESPParser:
-    def __init__(self, protocol_version: RESPProtocolVersion = RESPProtocolVersion.RESP2):
+    def __init__(
+        self, protocol_version: RESPProtocolVersion = RESPProtocolVersion.RESP2
+    ):
         self.protocol_version = protocol_version
 
     def parse(self, data: bytes) -> List[RESPObject]:
@@ -207,7 +206,11 @@ class RESPParser:
                 if obj:
                     objects.append(obj)
 
-                if isinstance(obj, RESPSimpleString) and len(remaining) - object_size >= 2 and remaining[object_size:object_size + 2] == b'\r\n':
+                if (
+                    isinstance(obj, RESPSimpleString)
+                    and len(remaining) - object_size >= 2
+                    and remaining[object_size : object_size + 2] == b"\r\n"
+                ):
                     object_size += 2
 
                 remaining = remaining[object_size:]
@@ -227,11 +230,15 @@ class RESPParser:
             type_byte = data[0:1].decode()
             resp_type = RESPObjectType(type_byte)
 
-            line_end = data.find(b'\r\n')
+            line_end = data.find(b"\r\n")
             if line_end == -1:
                 return 0
 
-            if resp_type in {RESPObjectType.SIMPLE_STRING, RESPObjectType.SIMPLE_ERROR, RESPObjectType.INTEGER}:
+            if resp_type in {
+                RESPObjectType.SIMPLE_STRING,
+                RESPObjectType.SIMPLE_ERROR,
+                RESPObjectType.INTEGER,
+            }:
                 return line_end + 2
 
             elif resp_type == RESPObjectType.BULK_STRING:
@@ -239,8 +246,14 @@ class RESPParser:
                 if length == -1:
                     return line_end + 2
 
-                if len(data) - line_end + length + 2 > 0 and data[line_end + 2 + length:line_end + 2 + length + 2] == b'\r\n':
-                    return line_end + 2 + length + 2    # Size of the bulk string header + length + CRLF
+                if (
+                    len(data) - line_end + length + 2 > 0
+                    and data[line_end + 2 + length : line_end + 2 + length + 2]
+                    == b"\r\n"
+                ):
+                    return (
+                        line_end + 2 + length + 2
+                    )  # Size of the bulk string header + length + CRLF
 
                 return line_end + 2 + length
 
@@ -276,11 +289,13 @@ class RESPParser:
             type_byte = data[0:1].decode()
             resp_type = RESPObjectType(type_byte)
 
-            is_not_end_with_crlf = not data.endswith(b'\r\n')
-            lines = data.split(b'\r\n')
+            is_not_end_with_crlf = not data.endswith(b"\r\n")
+            lines = data.split(b"\r\n")
 
             if resp_type == RESPObjectType.SIMPLE_STRING:
-                return RESPSimpleString(value=lines[0][1:].decode(), bytes_length=len(data))
+                return RESPSimpleString(
+                    value=lines[0][1:].decode(), bytes_length=len(data)
+                )
 
             elif resp_type == RESPObjectType.SIMPLE_ERROR:
                 return RESPError(value=lines[0][1:].decode(), bytes_length=len(data))
@@ -292,7 +307,11 @@ class RESPParser:
                 length = int(lines[0][1:])
                 if length == -1:
                     return RESPBulkString(value=None)
-                return RESPBulkBytes(value=lines[1], bytes_length=len(data)) if is_not_end_with_crlf else RESPBulkString(value=lines[1].decode(), bytes_length=len(data))
+                return (
+                    RESPBulkBytes(value=lines[1], bytes_length=len(data))
+                    if is_not_end_with_crlf
+                    else RESPBulkString(value=lines[1].decode(), bytes_length=len(data))
+                )
 
             elif resp_type == RESPObjectType.ARRAY:
                 length = int(lines[0][1:])
@@ -300,7 +319,7 @@ class RESPParser:
                     return RESPArray(value=[], bytes_length=len(data))
 
                 elements = []
-                current_data = data[data.find(b'\r\n') + 2:]
+                current_data = data[data.find(b"\r\n") + 2 :]
                 for _ in range(length):
                     element_size = self._get_object_size(current_data)
                     if element_size <= 0:

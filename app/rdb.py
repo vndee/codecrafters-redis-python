@@ -37,13 +37,13 @@ class RDBParser:
 
     def parse(self) -> Dict[int, Dict[str, Any]]:
         """Parse the RDB file and return the data structure"""
-        with open(self.file_path, 'rb') as f:
+        with open(self.file_path, "rb") as f:
             magic = f.read(5)
-            if magic != b'REDIS':
+            if magic != b"REDIS":
                 raise ValueError("Invalid RDB file format")
 
             version = f.read(4)
-            if not version.startswith(b'00'):
+            if not version.startswith(b"00"):
                 raise ValueError(f"Unsupported RDB version: {version}")
 
             while True:
@@ -60,10 +60,10 @@ class RDBParser:
                     if self.current_db not in self.data:
                         self.data[self.current_db] = {}
                 elif op_type == RDBOperationType.EXPIRETIME:
-                    expire_time = struct.unpack('I', f.read(4))[0]
+                    expire_time = struct.unpack("I", f.read(4))[0]
                     self._process_key_value_pair(f, expire_time * 1000)
                 elif op_type == RDBOperationType.EXPIRETIME_MS:
-                    expire_time = struct.unpack('Q', f.read(8))[0]
+                    expire_time = struct.unpack("Q", f.read(8))[0]
                     self._process_key_value_pair(f, expire_time)
                 elif op_type == RDBOperationType.AUX:
                     aux_key = self._read_string(f)
@@ -71,20 +71,24 @@ class RDBParser:
                     self.aux_fields[aux_key] = aux_value
                 elif op_type == RDBOperationType.RESIZEDB:
                     # Read hash table sizes
-                    db_size = self._read_length(f)
-                    expire_size = self._read_length(f)
+                    db_size = self._read_length(f)  # noqa: F841
+                    expire_size = self._read_length(f)  # noqa: F841
                     # Could store these sizes if needed
                 else:
                     self._process_key_value_pair(f, None, op_type)
 
             # Verify CRC64 (8 bytes)
-            crc = f.read(8)
+            crc = f.read(8)  # noqa: F841
             # TODO: Implement CRC verification
 
         return self.data
 
-    def _process_key_value_pair(self, f: BinaryIO, expire_time: Optional[float] = None,
-                                value_type: Optional[int] = None):
+    def _process_key_value_pair(
+        self,
+        f: BinaryIO,
+        expire_time: Optional[float] = None,
+        value_type: Optional[int] = None,
+    ):
         """Process a key-value pair entry"""
         if value_type is None:
             value_type = f.read(1)[0]
@@ -100,9 +104,9 @@ class RDBParser:
             value = self._read_string(f)
 
         self.data.setdefault(self.current_db, {})[key] = {
-            'value': value,
-            'type': value_type,
-            'expire_at': expire_time
+            "value": value,
+            "type": value_type,
+            "expire_at": expire_time,
         }
 
     def _read_length(self, f: BinaryIO) -> int:
@@ -119,15 +123,15 @@ class RDBParser:
             return ((first_byte & 0x3F) << 8) | next_byte
         elif bits == 2:  # 10xxxxxx
             # Discard the remaining 6 bits and read a 32-bit integer
-            return struct.unpack('>I', f.read(4))[0]
+            return struct.unpack(">I", f.read(4))[0]
         else:  # 11xxxxxx
             remaining = first_byte & 0x3F
             if remaining == 0:  # Read 8 bit integer
-                return struct.unpack('B', f.read(1))[0]
+                return struct.unpack("B", f.read(1))[0]
             elif remaining == 1:  # Read 16 bit integer
-                return struct.unpack('>H', f.read(2))[0]
+                return struct.unpack(">H", f.read(2))[0]
             elif remaining == 2:  # Read 32 bit integer
-                return struct.unpack('>I', f.read(4))[0]
+                return struct.unpack(">I", f.read(4))[0]
             else:
                 raise ValueError(f"Invalid length encoding: {first_byte}")
 
@@ -139,15 +143,15 @@ class RDBParser:
         if bits == 3:  # 11xxxxxx
             special_format = first_byte & 0x3F
             if special_format == 0:  # 8 bit integer
-                return str(struct.unpack('B', f.read(1))[0])
+                return str(struct.unpack("B", f.read(1))[0])
             elif special_format == 1:  # 16 bit integer
-                return str(struct.unpack('>H', f.read(2))[0])
+                return str(struct.unpack(">H", f.read(2))[0])
             elif special_format == 2:  # 32 bit integer
-                return str(struct.unpack('>I', f.read(4))[0])
+                return str(struct.unpack(">I", f.read(4))[0])
             elif special_format == 3:  # LZF compressed string
                 compressed_len = self._read_length(f)
                 uncompressed_len = self._read_length(f)
-                compressed_str = f.read(compressed_len)
+                compressed_str = f.read(compressed_len)  # noqa: F841
                 # TODO: Implement LZF decompression
                 return f"<LZF compressed string of length {uncompressed_len}>"
             else:
@@ -156,7 +160,7 @@ class RDBParser:
         # Reset file position and read as a length-prefixed string
         f.seek(-1, 1)  # Go back one byte
         length = self._read_length(f)
-        return f.read(length).decode('utf-8')
+        return f.read(length).decode("utf-8")
 
     def get_value(self, db: int, key: str) -> Any:
         """Get a value from the parsed data"""
@@ -164,9 +168,9 @@ class RDBParser:
             return None
 
         entry = self.data[db][key]
-        if entry['expire_time'] and entry['expire_time'] < datetime.now().timestamp():
+        if entry["expire_time"] and entry["expire_time"] < datetime.now().timestamp():
             return None
-        return entry['value']
+        return entry["value"]
 
     def get_aux_fields(self) -> Dict[str, str]:
         """Get all auxiliary fields"""
@@ -175,7 +179,7 @@ class RDBParser:
 
 def main():
     # Example usage
-    parser = RDBParser('../rdb/dump.rdb')
+    parser = RDBParser("../rdb_example/dump.rdb")
     data = parser.parse()
 
     # Print auxiliary fields
@@ -190,5 +194,5 @@ def main():
             print(f"  {key}: {value}")
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

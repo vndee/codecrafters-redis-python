@@ -59,12 +59,15 @@ class RedisDataObject:
     Represents a Redis data object that can hold different types of values
     with associated metadata
     """
+
     data_type: RDBEncoding
     value: Union[RedisInt, RedisString, RedisList, RedisSet, RedisZSet, RedisHash, None]
     expire_at: Optional[float] = None
 
     @classmethod
-    def create_string(cls, value: RedisString, expire_at: Optional[int] = None) -> "RedisDataObject":
+    def create_string(
+        cls, value: RedisString, expire_at: Optional[int] = None
+    ) -> "RedisDataObject":
         return cls(
             data_type=RDBEncoding.STRING,
             expire_at=expire_at,
@@ -72,7 +75,9 @@ class RedisDataObject:
         )
 
     @classmethod
-    def create_int(cls, value: RedisInt, expire_at: Optional[int] = None) -> "RedisDataObject":
+    def create_int(
+        cls, value: RedisInt, expire_at: Optional[int] = None
+    ) -> "RedisDataObject":
         return cls(
             data_type=RDBEncoding.STRING,
             expire_at=expire_at,
@@ -80,7 +85,9 @@ class RedisDataObject:
         )
 
     @classmethod
-    def create_list(cls, value: RedisList, expire_at: Optional[int] = None) -> "RedisDataObject":
+    def create_list(
+        cls, value: RedisList, expire_at: Optional[int] = None
+    ) -> "RedisDataObject":
         return cls(
             data_type=RDBEncoding.LIST,
             expire_at=expire_at,
@@ -88,7 +95,9 @@ class RedisDataObject:
         )
 
     @classmethod
-    def create_set(cls, value: RedisSet, expire_at: Optional[int] = None) -> "RedisDataObject":
+    def create_set(
+        cls, value: RedisSet, expire_at: Optional[int] = None
+    ) -> "RedisDataObject":
         return cls(
             data_type=RDBEncoding.SET,
             expire_at=expire_at,
@@ -96,7 +105,9 @@ class RedisDataObject:
         )
 
     @classmethod
-    def create_zset(cls, value: RedisZSet, expire_at: Optional[int] = None) -> "RedisDataObject":
+    def create_zset(
+        cls, value: RedisZSet, expire_at: Optional[int] = None
+    ) -> "RedisDataObject":
         return cls(
             data_type=RDBEncoding.ZSET,
             expire_at=expire_at,
@@ -104,7 +115,9 @@ class RedisDataObject:
         )
 
     @classmethod
-    def create_hash(cls, value: RedisHash, expire_at: Optional[int] = None) -> "RedisDataObject":
+    def create_hash(
+        cls, value: RedisHash, expire_at: Optional[int] = None
+    ) -> "RedisDataObject":
         return cls(
             data_type=RDBEncoding.HASH,
             expire_at=expire_at,
@@ -112,7 +125,9 @@ class RedisDataObject:
         )
 
     @classmethod
-    def create_stream(cls, value: RedisList, expire_at: Optional[int] = None) -> "RedisDataObject":
+    def create_stream(
+        cls, value: RedisList, expire_at: Optional[int] = None
+    ) -> "RedisDataObject":
         return cls(
             data_type=RDBEncoding.STREAM,
             expire_at=expire_at,
@@ -174,13 +189,15 @@ class RedisDataStore:
     def __init__(
         self,
         dir: str = "/tmp/redis-files",
-        dbfilename: str = "dump.rdb",
+        dbfilename: str = "dump.rdb_example",
         database_idx: int = 0,
     ):
         self.dir = dir
         self.dbfilename = dbfilename
         self.database_idx = database_idx
-        self.__data_dict: Dict[int, Dict[str, RedisDataObject]] = {}    # database -> key -> value
+        self.__data_dict: Dict[
+            int, Dict[str, RedisDataObject]
+        ] = {}  # database -> key -> value
 
         os.makedirs(self.dir, exist_ok=True)
         self.__data_dict.setdefault(self.database_idx, {})
@@ -203,13 +220,21 @@ class RedisDataStore:
                 for key, value in keys.items():
                     expire_at = value["expire_at"]
                     if expire_at and expire_at < time.time() * 1000:
-                        print(f"The key: {key} has expired {time.time() - expire_at} seconds ago - skipping")
+                        print(
+                            f"The key: {key} has expired {time.time() - expire_at} seconds ago - skipping"
+                        )
                         continue
 
-                    self.__data_dict[db][key] = RedisDataObject.deserialize_from_rdb(value)
-                    print(f"Restored key: {key} with value: {self.__data_dict[db][key].serialize()}")
+                    self.__data_dict[db][key] = RedisDataObject.deserialize_from_rdb(
+                        value
+                    )
+                    print(
+                        f"Restored key: {key} with value: {self.__data_dict[db][key].serialize()}"
+                    )
 
-            print(f"Loaded {len(self.__data_dict[self.database_idx].keys())} keys from RDB file")
+            print(
+                f"Loaded {len(self.__data_dict[self.database_idx].keys())} keys from RDB file"
+            )
             print(f"Data: {self.__data_dict}")
         except Exception as e:
             print(f"Error loading RDB file: {str(e)}")
@@ -388,11 +413,15 @@ class RedisDataStore:
         :return:
         """
         if key not in self.__data_dict[self.database_idx]:
-            self.__data_dict[self.database_idx][key] = RedisDataObject.create_stream([], expire_at=None)
+            self.__data_dict[self.database_idx][key] = RedisDataObject.create_stream(
+                [], expire_at=None
+            )
 
         stream = self.__data_dict[self.database_idx][key]
         if stream.data_type != RDBEncoding.STREAM:
-            return RESPSimpleError(value="ERR: Operation against a key holding the wrong kind of value")
+            return RESPSimpleError(
+                value="ERR: Operation against a key holding the wrong kind of value"
+            )
 
         prev_id, _ = stream.value[-1] if stream.value else ("0-0", {})
         prev_timestamp_ms, prev_seq = prev_id.split("-")
@@ -414,19 +443,27 @@ class RedisDataStore:
 
         current_timestamp_ms, current_seq = int(current_timestamp_ms), int(current_seq)
         if current_timestamp_ms <= 0 and current_seq <= 0:
-            return RESPSimpleError(value="ERR The ID specified in XADD must be greater than 0-0")
+            return RESPSimpleError(
+                value="ERR The ID specified in XADD must be greater than 0-0"
+            )
 
         if current_timestamp_ms < prev_timestamp_ms:
-            return RESPSimpleError(value="ERR The ID specified in XADD is equal or smaller than the target stream top item")
+            return RESPSimpleError(
+                value="ERR The ID specified in XADD is equal or smaller than the target stream top item"
+            )
 
         if current_timestamp_ms == prev_timestamp_ms and current_seq <= prev_seq:
-            return RESPSimpleError(value="ERR The ID specified in XADD is equal or smaller than the target stream top item")
+            return RESPSimpleError(
+                value="ERR The ID specified in XADD is equal or smaller than the target stream top item"
+            )
 
         new_id = f"{current_timestamp_ms}-{current_seq}"
         stream.value.append((new_id, fields))
         return RESPBulkString(value=new_id)
 
-    def xrange(self, key: str, lower_bound: str, upper_bound: str, count: Optional[int] = None) -> RESPObject:
+    def xrange(
+        self, key: str, lower_bound: str, upper_bound: str, count: Optional[int] = None
+    ) -> RESPObject:
         """
         Return a range of elements in a stream, with IDs matching the specified IDs interval.
         :param key: str
@@ -440,29 +477,47 @@ class RedisDataStore:
 
         stream = self.__data_dict[self.database_idx][key]
         if stream.data_type != RDBEncoding.STREAM:
-            return RESPSimpleError(value="ERR: Operation against a key holding the wrong kind of value")
+            return RESPSimpleError(
+                value="ERR: Operation against a key holding the wrong kind of value"
+            )
 
         if "-" not in lower_bound:
             lower_bound = f"{lower_bound}-0"
 
         lower_bound_timestamp_ms, lower_bound_seq = lower_bound.split("-")
-        lower_bound_timestamp_ms, lower_bound_seq = int(lower_bound_timestamp_ms), int(lower_bound_seq)
+        lower_bound_timestamp_ms, lower_bound_seq = int(lower_bound_timestamp_ms), int(
+            lower_bound_seq
+        )
 
         if "-" not in upper_bound:
             upper_bound_timestamp_ms = int(upper_bound)
-            upper_bound_timestamp_ms, upper_bound_seq = int(upper_bound_timestamp_ms), sys.maxsize
+            upper_bound_timestamp_ms, upper_bound_seq = (
+                int(upper_bound_timestamp_ms),
+                sys.maxsize,
+            )
         else:
             upper_bound_timestamp_ms, upper_bound_seq = upper_bound.split("-")
-            upper_bound_timestamp_ms, upper_bound_seq = int(upper_bound_timestamp_ms), int(upper_bound_seq)
+            upper_bound_timestamp_ms, upper_bound_seq = int(
+                upper_bound_timestamp_ms
+            ), int(upper_bound_seq)
 
         if lower_bound_timestamp_ms < 0 or lower_bound_seq < 0:
-            return RESPSimpleError(value="ERR The ID specified in XRANGE must be greater than 0-0")
+            return RESPSimpleError(
+                value="ERR The ID specified in XRANGE must be greater than 0-0"
+            )
 
         if lower_bound_timestamp_ms > upper_bound_timestamp_ms:
-            return RESPSimpleError(value="ERR The ID specified in XRANGE is greater than the target stream top item")
+            return RESPSimpleError(
+                value="ERR The ID specified in XRANGE is greater than the target stream top item"
+            )
 
-        if lower_bound_timestamp_ms == upper_bound_timestamp_ms and lower_bound_seq > upper_bound_seq:
-            return RESPSimpleError(value="ERR The ID specified in XRANGE is greater than the target stream top item")
+        if (
+            lower_bound_timestamp_ms == upper_bound_timestamp_ms
+            and lower_bound_seq > upper_bound_seq
+        ):
+            return RESPSimpleError(
+                value="ERR The ID specified in XRANGE is greater than the target stream top item"
+            )
 
         result = RESPArray(value=[])
         for id, fields in stream.value:
@@ -482,12 +537,7 @@ class RedisDataStore:
                 break
 
             result.value.append(
-                RESPArray(
-                    value=[
-                        RESPBulkString(value=id),
-                        RESPArray(value=fields)
-                    ]
-                )
+                RESPArray(value=[RESPBulkString(value=id), RESPArray(value=fields)])
             )
 
         return result
@@ -503,7 +553,9 @@ class RedisDataStore:
 
         stream = self.__data_dict[self.database_idx][key]
         if stream.data_type != RDBEncoding.STREAM:
-            raise RedisError("ERR: Operation against a key holding the wrong kind of value")
+            raise RedisError(
+                "ERR: Operation against a key holding the wrong kind of value"
+            )
 
         if not stream.value:
             return "0-0"
@@ -524,7 +576,9 @@ class RedisDataStore:
 
             stream = self.__data_dict[self.database_idx][key]
             if stream.data_type != RDBEncoding.STREAM:
-                return RESPSimpleError(value="ERR: Operation against a key holding the wrong kind of value")
+                return RESPSimpleError(
+                    value="ERR: Operation against a key holding the wrong kind of value"
+                )
 
             if id == "0":
                 continue
@@ -541,7 +595,9 @@ class RedisDataStore:
             stream_result = RESPArray(value=[])
             for stream_id, fields in stream.value:
                 stream_timestamp_ms, stream_seq = stream_id.split("-")
-                stream_timestamp_ms, stream_seq = int(stream_timestamp_ms), int(stream_seq)
+                stream_timestamp_ms, stream_seq = int(stream_timestamp_ms), int(
+                    stream_seq
+                )
 
                 if stream_timestamp_ms < timestamp_ms:
                     continue
@@ -551,20 +607,12 @@ class RedisDataStore:
 
                 stream_result.value.append(
                     RESPArray(
-                        value=[
-                            RESPBulkString(value=stream_id),
-                            RESPArray(value=fields)
-                        ]
+                        value=[RESPBulkString(value=stream_id), RESPArray(value=fields)]
                     )
                 )
 
             result.value.append(
-                RESPArray(
-                    value=[
-                        RESPBulkString(value=key),
-                        stream_result
-                    ]
-                )
+                RESPArray(value=[RESPBulkString(value=key), stream_result])
             )
 
         has_entries = False
