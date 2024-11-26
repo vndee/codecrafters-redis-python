@@ -441,7 +441,7 @@ class RedisDataStore:
 
         if lower_bound_timestamp_ms == upper_bound_timestamp_ms and lower_bound_seq > upper_bound_seq:
             raise RedisError("ERR The ID specified in XRANGE is greater than the target stream top item")
-
+        print(f"XRANGE: {lower_bound_timestamp_ms}, {lower_bound_seq}, {upper_bound_timestamp_ms}, {upper_bound_seq}")
         result = RESPArray(value=[])
         for id, fields in stream.value:
             timestamp_ms, seq = id.split("-")
