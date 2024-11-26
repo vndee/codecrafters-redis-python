@@ -375,6 +375,7 @@ class RedisDataStore:
         prev_timestamp_ms, prev_seq = int(prev_timestamp_ms), int(prev_seq)
 
         current_timestamp_ms, current_seq = id.split("-")
+        print(f"prev_timestamp_ms: {prev_timestamp_ms}, prev_seq: {prev_seq}, current_timestamp_ms: {current_timestamp_ms}, current_seq: {current_seq}")
         if current_seq == "*":
             if current_timestamp_ms == prev_timestamp_ms:
                 current_seq = prev_seq + 1
