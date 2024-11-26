@@ -460,15 +460,15 @@ class RedisDataStore:
             if timestamp_ms == upper_bound_timestamp_ms and seq > upper_bound_seq:
                 break
             print(f"ID: {id}, Fields: {fields}")
-            object_fields = []
-            for k, v in fields.items():
-                object_fields.extend([RESPBulkString(value=k), RESPBulkString(value=v)])
+            # object_fields = []
+            # for k, v in fields.items():
+            #     object_fields.extend([RESPBulkString(value=k), RESPBulkString(value=v)])
 
             result.value.append(
                 RESPArray(
                     value=[
                         RESPBulkString(value=id),
-                        RESPArray(value=object_fields)
+                        fields
                     ]
                 )
             )
