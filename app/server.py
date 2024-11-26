@@ -447,6 +447,7 @@ class RedisServer:
             case RedisCommand.XREAD:
                 stream_args = [stream.value.lower() for stream in data.value[1:]]
 
+                block = None
                 block_idx = self.find_index_in_list("block", stream_args)
                 if block_idx != -1:
                     block = int(stream_args[block_idx + 1])
@@ -466,7 +467,9 @@ class RedisServer:
                 ids = stream_args[pivot:]
                 print(f"XREAD pivot: {pivot}, streams: {streams}, ids: {ids}, stream_args: {stream_args}, block: {block}")
 
-                await asyncio.sleep(block/1000)
+                if block:
+                    await asyncio.sleep(block/1000)
+
                 await self.__send_data(writer, self.__data_store.xread(streams, ids))
 
             case _:
