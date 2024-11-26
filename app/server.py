@@ -446,7 +446,6 @@ class RedisServer:
 
             case RedisCommand.XREAD:
                 stream_args = [stream.value.lower() for stream in data.value[1:]]
-                print(stream_args)
 
                 stream_idx = self.find_index_in_list("streams", stream_args)
                 diff_idx = max(self.find_index_in_list("count", stream_args), self.find_index_in_list("block", stream_args))
@@ -455,13 +454,10 @@ class RedisServer:
                 else:
                     diff_idx = diff_idx + 1
 
-                print(f"stream_idx: {self.find_index_in_list('streams', stream_args)}")
-                print(f"diff_idx: {self.find_index_in_list('count', stream_args)}")
-                print(f"diff_idx: {self.find_index_in_list('block', stream_args)}")
-
                 stream_args = stream_args[stream_idx + 1:diff_idx]
-
-                print(f"XREAD streams: {stream_args}")
+                streams = stream_args[: len(stream_args) >> 2]
+                ids = stream_args[len(stream_args) >> 2 + 1:]
+                print(f"XREAD streams: {streams} with ids: {ids}")
 
             case _:
                 await self.__send_data(writer, RESPSimpleString(value="ERR unknown command"))
