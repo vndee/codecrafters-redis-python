@@ -28,6 +28,7 @@ class RedisCommand(StrEnum):
     TYPE = "type"
     XADD = "xadd"
     XRANGE = "xrange"
+    XREAD = "xread"
 
 
 RedisString = str
@@ -470,6 +471,55 @@ class RedisDataStore:
             )
 
         return result
+
+    def xread(self, key: str, id: str) -> RESPArray:
+        """
+        Return never-ending stream of data from the stream.
+        :param key:
+        :param id:
+        :return:
+        """
+        if key not in self.__data_dict[self.database_idx]:
+            return RESPArray(value=[])
+
+        stream = self.__data_dict[self.database_idx][key]
+        if stream.data_type != RDBEncoding.STREAM:
+            raise RedisError("ERR: Operation against a key holding the wrong kind of value")
+
+        if id == "0":
+            return RESPArray(value=[])
+
+        if id == "$":
+            return RESPArray(value=[])
+
+        if "-" not in id:
+            id = f"{id}-0"
+
+        timestamp_ms, seq = id.split("-")
+        timestamp_ms, seq = int(timestamp_ms), int(seq)
+
+        result = RESPArray(value=[])
+        for stream_id, fields in stream.value:
+            stream_timestamp_ms, stream_seq = stream_id.split("-")
+            stream_timestamp_ms, stream_seq = int(stream_timestamp_ms), int(stream_seq)
+
+            if stream_timestamp_ms < timestamp_ms:
+                continue
+
+            if stream_timestamp_ms == timestamp_ms and stream_seq <= seq:
+                continue
+
+            result.value.append(
+                RESPArray(
+                    value=[
+                        RESPBulkString(value=stream_id),
+                        RESPArray(value=fields)
+                    ]
+                )
+            )
+
+        return result
+
 
     def dump_to_rdb(self) -> bytes:
         """

@@ -444,6 +444,10 @@ class RedisServer:
 
                 await self.__send_data(writer, self.__data_store.xrange(stream, start, end))
 
+            case RedisCommand.XREAD:
+                streams = [stream.value for stream in data.value[1:]]
+                print(f"XREAD streams: {streams}")
+
             case _:
                 await self.__send_data(writer, RESPSimpleString(value="ERR unknown command"))
 
