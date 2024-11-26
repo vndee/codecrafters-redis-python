@@ -413,8 +413,9 @@ class RedisDataStore:
         :param count: Optional[int]
         :return:
         """
+        print(f"XRANGE: {key}, {lower_bound}, {upper_bound}, {count}")
         if key not in self.__data_dict[self.database_idx]:
-            return []
+            return RESPArray(value=[])
 
         stream = self.__data_dict[self.database_idx][key]
         if stream.data_type != RDBEncoding.STREAM:
