@@ -62,7 +62,7 @@ class RedisDataObject:
 
     data_type: RDBEncoding
     value: Union[RedisInt, RedisString, RedisList, RedisSet, RedisZSet, RedisHash, None]
-    expire_at: Optional[float] = None
+    expire_at: Optional[int] = None
 
     @classmethod
     def create_string(
@@ -150,15 +150,15 @@ class RedisDataObject:
 
     def serialize(self) -> str:
         if self.data_type == RDBEncoding.STRING:
-            return self.value
+            return str(self.value)
         if self.data_type == RDBEncoding.LIST:
-            return f"[{', '.join(self.value)}]"
+            return f"[{', '.join(self.value)}]"  # type: ignore[arg-type]
         if self.data_type == RDBEncoding.SET:
-            return f"{{{', '.join(self.value)}}}"
+            return f"{{{', '.join(self.value)}}}"  # type: ignore[arg-type]
         if self.data_type == RDBEncoding.ZSET:
-            return f"{{{', '.join([f'{k}={v}' for k, v in self.value.items()])}}}"
+            return f"{{{', '.join([f'{k}={v}' for k, v in self.value.items()])}}}"  # type: ignore[arg-type, union-attr]
         if self.data_type == RDBEncoding.HASH:
-            return f"{{{', '.join([f'{k}={v}' for k, v in self.value.items()])}}}"
+            return f"{{{', '.join([f'{k}={v}' for k, v in self.value.items()])}}}"  # type: ignore[arg-type, union-attr]
 
         return ""
 
@@ -196,7 +196,7 @@ class RedisDataStore:
         self.dbfilename = dbfilename
         self.database_idx = database_idx
         self.__data_dict: Dict[
-            int, Dict[str, RedisDataObject]
+            int, Dict[str, RedisDataObject | Dict[str, Any]]
         ] = {}  # database -> key -> value
 
         os.makedirs(self.dir, exist_ok=True)
@@ -229,7 +229,7 @@ class RedisDataStore:
                         value
                     )
                     print(
-                        f"Restored key: {key} with value: {self.__data_dict[db][key].serialize()}"
+                        f"Restored key: {key} with value: {self.__data_dict[db][key].serialize()}"  # type: ignore[union-attr]
                     )
 
             print(
@@ -307,14 +307,14 @@ class RedisDataStore:
 
         old_value = None
         if key in self.__data_dict:
-            old_value = self.__data_dict[self.database_idx][key].value
+            old_value = self.__data_dict[self.database_idx][key].value  # type: ignore[union-attr]
 
         key_exists = key in self.__data_dict[self.database_idx]
         if (nx and key_exists) or (xx and not key_exists):
             return None
 
         expire_at = None
-        current_time_ms = time.time() * 1000
+        current_time_ms = int(time.time()) * 1000
 
         if ex:
             expire_at = current_time_ms + ex * 1000
@@ -326,7 +326,7 @@ class RedisDataStore:
             expire_at = pxat
 
         if keepttl and key in self.__data_dict[self.database_idx]:
-            expire_at = self.__data_dict[self.database_idx][key].expire_at
+            expire_at = self.__data_dict[self.database_idx][key].expire_at  # type: ignore[union-attr]
 
         if isinstance(value, int):
             data_obj = RedisDataObject.create_int(value, expire_at)
@@ -347,11 +347,11 @@ class RedisDataStore:
             return RESPBulkString(value=None)
 
         data_obj = self.__data_dict[self.database_idx][key]
-        if data_obj.is_expired():
+        if data_obj.is_expired():  # type: ignore[union-attr]
             del self.__data_dict[self.database_idx][key]
             return RESPBulkString(value=None)
 
-        return RESPBulkString(value=str(data_obj.value))
+        return RESPBulkString(value=str(data_obj.value))  # type: ignore[union-attr]
 
     def keys(self, pattern: str) -> List[str]:
         """
@@ -378,7 +378,7 @@ class RedisDataStore:
 
         matched_keys = []
         for key, data_obj in self.__data_dict[self.database_idx].items():
-            if data_obj.is_expired():
+            if data_obj.is_expired():  # type: ignore[union-attr]
                 del self.__data_dict[self.database_idx][key]
                 continue
 
@@ -398,11 +398,11 @@ class RedisDataStore:
             return "none"
 
         data_obj = self.__data_dict[self.database_idx][key]
-        if data_obj.is_expired():
+        if data_obj.is_expired():  # type: ignore[union-attr]
             del self.__data_dict[self.database_idx][key]
             return "none"
 
-        return data_obj.data_type.name.lower()
+        return data_obj.data_type.name.lower()  # type: ignore[union-attr]
 
     def xadd(self, key: str, id: str, fields: Dict[str, str]) -> RESPObject:
         """
@@ -418,12 +418,12 @@ class RedisDataStore:
             )
 
         stream = self.__data_dict[self.database_idx][key]
-        if stream.data_type != RDBEncoding.STREAM:
+        if stream.data_type != RDBEncoding.STREAM:  # type: ignore[union-attr]
             return RESPSimpleError(
                 value="ERR: Operation against a key holding the wrong kind of value"
             )
 
-        prev_id, _ = stream.value[-1] if stream.value else ("0-0", {})
+        prev_id, _ = stream.value[-1] if stream.value else ("0-0", {})  # type: ignore[index, misc, union-attr]
         prev_timestamp_ms, prev_seq = prev_id.split("-")
         prev_timestamp_ms, prev_seq = int(prev_timestamp_ms), int(prev_seq)
 
@@ -434,7 +434,7 @@ class RedisDataStore:
             else:
                 current_seq = 0
         else:
-            current_timestamp_ms, current_seq = id.split("-")
+            current_timestamp_ms, current_seq = id.split("-")  # type: ignore[assignment]
             if current_seq == "*":
                 if int(current_timestamp_ms) == prev_timestamp_ms:
                     current_seq = prev_seq + 1
@@ -458,7 +458,7 @@ class RedisDataStore:
             )
 
         new_id = f"{current_timestamp_ms}-{current_seq}"
-        stream.value.append((new_id, fields))
+        stream.value.append((new_id, fields))  # type: ignore[union-attr]
         return RESPBulkString(value=new_id)
 
     def xrange(
@@ -476,7 +476,7 @@ class RedisDataStore:
             return RESPArray(value=[])
 
         stream = self.__data_dict[self.database_idx][key]
-        if stream.data_type != RDBEncoding.STREAM:
+        if stream.data_type != RDBEncoding.STREAM:  # type: ignore[union-attr]
             return RESPSimpleError(
                 value="ERR: Operation against a key holding the wrong kind of value"
             )
@@ -485,7 +485,7 @@ class RedisDataStore:
             lower_bound = f"{lower_bound}-0"
 
         lower_bound_timestamp_ms, lower_bound_seq = lower_bound.split("-")
-        lower_bound_timestamp_ms, lower_bound_seq = int(lower_bound_timestamp_ms), int(
+        lower_bound_timestamp_ms, lower_bound_seq = int(lower_bound_timestamp_ms), int(  # type: ignore[assignment]
             lower_bound_seq
         )
 
@@ -496,31 +496,31 @@ class RedisDataStore:
                 sys.maxsize,
             )
         else:
-            upper_bound_timestamp_ms, upper_bound_seq = upper_bound.split("-")
+            upper_bound_timestamp_ms, upper_bound_seq = upper_bound.split("-")  # type: ignore[assignment]
             upper_bound_timestamp_ms, upper_bound_seq = int(
                 upper_bound_timestamp_ms
             ), int(upper_bound_seq)
 
-        if lower_bound_timestamp_ms < 0 or lower_bound_seq < 0:
+        if lower_bound_timestamp_ms < 0 or lower_bound_seq < 0:  # type: ignore[operator]
             return RESPSimpleError(
                 value="ERR The ID specified in XRANGE must be greater than 0-0"
             )
 
-        if lower_bound_timestamp_ms > upper_bound_timestamp_ms:
+        if lower_bound_timestamp_ms > upper_bound_timestamp_ms:  # type: ignore[operator]
             return RESPSimpleError(
                 value="ERR The ID specified in XRANGE is greater than the target stream top item"
             )
 
         if (
             lower_bound_timestamp_ms == upper_bound_timestamp_ms
-            and lower_bound_seq > upper_bound_seq
+            and lower_bound_seq > upper_bound_seq  # type: ignore[operator]
         ):
             return RESPSimpleError(
                 value="ERR The ID specified in XRANGE is greater than the target stream top item"
             )
 
         result = RESPArray(value=[])
-        for id, fields in stream.value:
+        for id, fields in stream.value:  # type: ignore[misc, union-attr]
             timestamp_ms, seq = id.split("-")
             timestamp_ms, seq = int(timestamp_ms), int(seq)
 
@@ -536,7 +536,7 @@ class RedisDataStore:
             if timestamp_ms == upper_bound_timestamp_ms and seq > upper_bound_seq:
                 break
 
-            result.value.append(
+            result.value.append(  # type: ignore[union-attr]
                 RESPArray(value=[RESPBulkString(value=id), RESPArray(value=fields)])
             )
 
@@ -552,15 +552,15 @@ class RedisDataStore:
             return "0-0"
 
         stream = self.__data_dict[self.database_idx][key]
-        if stream.data_type != RDBEncoding.STREAM:
+        if stream.data_type != RDBEncoding.STREAM:  # type: ignore[union-attr]
             raise RedisError(
                 "ERR: Operation against a key holding the wrong kind of value"
             )
 
-        if not stream.value:
+        if not stream.value:  # type: ignore[union-attr]
             return "0-0"
 
-        return stream.value[-1][0]
+        return stream.value[-1][0]  # type: ignore[union-attr, index]
 
     def xread(self, keys: list, ids: list) -> RESPObject:
         """
@@ -575,7 +575,7 @@ class RedisDataStore:
                 continue
 
             stream = self.__data_dict[self.database_idx][key]
-            if stream.data_type != RDBEncoding.STREAM:
+            if stream.data_type != RDBEncoding.STREAM:  # type: ignore[union-attr]
                 return RESPSimpleError(
                     value="ERR: Operation against a key holding the wrong kind of value"
                 )
@@ -593,7 +593,7 @@ class RedisDataStore:
             timestamp_ms, seq = int(timestamp_ms), int(seq)
 
             stream_result = RESPArray(value=[])
-            for stream_id, fields in stream.value:
+            for stream_id, fields in stream.value:  # type: ignore[union-attr, misc]
                 stream_timestamp_ms, stream_seq = stream_id.split("-")
                 stream_timestamp_ms, stream_seq = int(stream_timestamp_ms), int(
                     stream_seq
@@ -605,18 +605,18 @@ class RedisDataStore:
                 if stream_timestamp_ms == timestamp_ms and stream_seq <= seq:
                     continue
 
-                stream_result.value.append(
+                stream_result.value.append(  # type: ignore[union-attr]
                     RESPArray(
                         value=[RESPBulkString(value=stream_id), RESPArray(value=fields)]
                     )
                 )
 
-            result.value.append(
+            result.value.append(  # type: ignore[union-attr]
                 RESPArray(value=[RESPBulkString(value=key), stream_result])
             )
 
         has_entries = False
-        for entry in result.value:
+        for entry in result.value:  # type: ignore[union-attr]
             if entry.value[1].value:
                 has_entries = True
                 break
@@ -634,19 +634,19 @@ class RedisDataStore:
             return RESPInteger(value=1)
 
         data_obj = self.__data_dict[self.database_idx][key]
-        if data_obj.data_type != RDBEncoding.STRING:
+        if data_obj.data_type != RDBEncoding.STRING:  # type: ignore[union-attr]
             return RESPSimpleError(value="ERR value is not an integer or out of range")
 
-        if data_obj.is_expired():
+        if data_obj.is_expired():  # type: ignore[union-attr]
             del self.__data_dict[self.database_idx][key]
             self.set(key, 1)
             return RESPInteger(value=1)
 
-        if not isinstance(data_obj.value, int):
+        if not isinstance(data_obj.value, int):  # type: ignore[union-attr]
             return RESPSimpleError(value="ERR value is not an integer or out of range")
 
-        data_obj.value += 1
-        return RESPInteger(value=data_obj.value)
+        data_obj.value += 1  # type: ignore[union-attr]
+        return RESPInteger(value=data_obj.value)  # type: ignore[union-attr]
 
     def dump_to_rdb(self) -> bytes:
         """

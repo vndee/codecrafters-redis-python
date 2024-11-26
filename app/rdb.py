@@ -44,7 +44,7 @@ class RDBParser:
 
             version = f.read(4)
             if not version.startswith(b"00"):
-                raise ValueError(f"Unsupported RDB version: {version}")
+                raise ValueError(f"Unsupported RDB version: {version.decode()}")
 
             while True:
                 type_byte = f.read(1)

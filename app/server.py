@@ -4,7 +4,7 @@ import time
 import asyncio
 import argparse
 from enum import StrEnum
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 from dataclasses import dataclass
 
 from app.resp import (
@@ -66,7 +66,7 @@ class RedisServer:
         port: int = 6379,
         dir: str = "/tmp/redis-files",
         dbfilename: str = "dump.rdb_example",
-        replicaof: str = None,
+        replicaof: str | None = None,
     ):
         self.host = host
         self.port = port
@@ -87,14 +87,20 @@ class RedisServer:
             repl_backlog_first_byte_offset=0,
             repl_backlog_histlen=0,
         )
-        self.__master_connection = None
+        self.__master_connection: Tuple[
+            asyncio.StreamReader | None, asyncio.StreamWriter | None
+        ] = (
+            None,
+            None,
+        )
+
         self.__master_listener = None
         self.__repl_ack_offset = 0
 
         self.__replicaof = replicaof
         self.__client_write_offsets: Dict[asyncio.StreamWriter, int] = {}
         self.__replica_acks: Dict[
-            asyncio.StreamWriter, (asyncio.StreamReader, int)
+            asyncio.StreamWriter, Tuple[asyncio.StreamReader, int]
         ] = {}
         self.__request_acks: Dict[asyncio.StreamWriter, bool] = {}
 
@@ -205,8 +211,8 @@ class RedisServer:
                     # TODO: Handle RDB data
                     pass
                 elif command.type == RESPObjectType.SIMPLE_STRING:
-                    if command.value.startswith("FULLRESYNC"):
-                        parts = command.value.split(" ")
+                    if command.value.startswith("FULLRESYNC"):  # type: ignore[union-attr]
+                        parts = command.value.split(" ")  # type: ignore[union-attr]
                         master_replid, master_repl_offset = parts[1:]
                         self.__repl_info.master_replid = master_replid
                         self.__repl_info.master_repl_offset = int(master_repl_offset)
@@ -231,7 +237,7 @@ class RedisServer:
         try:
             while True:
                 data = await reader.read(1024)
-                print(f"Received from master: {data} - length: {len(data)}")
+                print(f"Received from master: {data.decode()} - length: {len(data)}")
                 if not data:
                     break
 
