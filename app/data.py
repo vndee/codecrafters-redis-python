@@ -10,7 +10,13 @@ from dataclasses import dataclass
 from typing import Dict, Any, Optional, List, Set, Union
 
 from app.rdb import RDBParser, RDBEncoding
-from app.resp import RESPArray, RESPBulkString, RESPObject, RESPInteger, RESPSimpleError, RESPNull
+from app.resp import (
+    RESPArray,
+    RESPBulkString,
+    RESPObject,
+    RESPInteger,
+    RESPSimpleError,
+)
 
 
 class RedisCommand(StrEnum):

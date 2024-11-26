@@ -308,7 +308,7 @@ class RedisServer:
 
         try:
             print(f"Handling command: {data} - is_master_command: {is_master_command}")
-            command = data.value[0].value.lower()
+            command = data.value[0].value.lower()  # type: ignore[index]
 
             if self.__is_command_in_queue.get(writer, False) and command not in {
                 RedisCommand.EXEC,
@@ -316,7 +316,9 @@ class RedisServer:
             }:
                 self.__command_queue[writer].append(data)
                 await self.__send_data(writer, RESPSimpleString(value="QUEUED"))
-                return
+                return None
+
+            resp: RESPObject
 
             match command:
                 case RedisCommand.PING:
@@ -331,21 +333,21 @@ class RedisServer:
                 case RedisCommand.ECHO:
                     if not is_return_resp:
                         await self.__send_data(
-                            writer, RESPBulkString(value=data.value[1].value)
+                            writer, RESPBulkString(value=data.value[1].value)  # type: ignore[index]
                         )
                     else:
-                        return RESPBulkString(value=data.value[1].value)
+                        return RESPBulkString(value=data.value[1].value)  # type: ignore[index]
 
                 case RedisCommand.SET:
-                    key = data.value[1].value
-                    value = data.value[2].value
+                    key = data.value[1].value  # type: ignore[index]
+                    value = data.value[2].value  # type: ignore[index]
 
                     i = 3
                     args: Dict[str, Any] = {}
-                    while i < len(data.value):
-                        arg_name = data.value[i].value.lower()
+                    while i < len(data.value):  # type: ignore[index, arg-type]
+                        arg_name = data.value[i].value.lower()  # type: ignore[index]
                         if arg_name in ("ex", "px", "exat", "pxat"):
-                            args[arg_name] = int(data.value[i + 1].value)
+                            args[arg_name] = int(data.value[i + 1].value)  # type: ignore[index]
                             i = i + 2
                         elif arg_name in ("nx", "xx", "keepttl", "get"):
                             args[arg_name] = True
@@ -375,16 +377,16 @@ class RedisServer:
                             return resp
 
                 case RedisCommand.GET:
-                    key = data.value[1].value
+                    key = data.value[1].value  # type: ignore[index]
                     if not is_return_resp:
                         await self.__send_data(writer, self.__data_store.get(key))
                     else:
                         return self.__data_store.get(key)
 
                 case RedisCommand.CONFIG:
-                    method = data.value[1].value.lower()
+                    method = data.value[1].value.lower()  # type: ignore[index]
                     if method == RedisCommand.GET:
-                        param = data.value[2].value.lower()
+                        param = data.value[2].value.lower()  # type: ignore[index]
                         if param == "dir":
                             resp = RESPArray(
                                 value=[
@@ -409,7 +411,7 @@ class RedisServer:
                                 return resp
 
                 case RedisCommand.KEYS:
-                    pattern = data.value[1].value
+                    pattern = data.value[1].value  # type: ignore[index]
                     resp = RESPArray(
                         value=[
                             RESPBulkString(value=key)
@@ -429,25 +431,25 @@ class RedisServer:
                         return resp
 
                 case RedisCommand.REPLCONF:
-                    attr = data.value[1].value.lower()
+                    attr = data.value[1].value.lower()  # type: ignore[index]
 
                     if self.__repl_info.role == RedisReplicationRole.MASTER:
                         if attr.lower() == "listening-port":
                             self.__replica_acks[writer] = (reader, 0)
                             print(
-                                f"New connected slaves: {writer.get_extra_info('peername')} - listening port: {data.value[2].value}"
+                                f"New connected slaves: {writer.get_extra_info('peername')} - listening port: {data.value[2].value}"  # type: ignore[index]
                             )
                         elif attr.lower() == "ack":
                             self.__replica_acks[writer] = (
                                 reader,
-                                int(data.value[2].value),
+                                int(data.value[2].value),  # type: ignore[index]
                             )
                             self.__request_acks[
                                 writer.get_extra_info("peername")
                             ] = False
-                            return
+                            return None
                         elif attr.lower() == "capa":
-                            capa = data.value[2].value.lower()
+                            capa = data.value[2].value.lower()  # type: ignore[index]
                             if capa == "psync2":
                                 pass
                         else:
@@ -476,7 +478,7 @@ class RedisServer:
                         elif attr.lower() == "ack":
                             self.__replica_acks[writer] = (
                                 reader,
-                                int(data.value[2].value),
+                                int(data.value[2].value),  # type: ignore[index]
                             )
                             self.__request_acks[
                                 writer.get_extra_info("peername")
@@ -487,8 +489,8 @@ class RedisServer:
                             )
 
                 case RedisCommand.PSYNC:
-                    repl_id = data.value[1].value
-                    repl_offset = int(data.value[2].value)
+                    repl_id = data.value[1].value  # type: ignore[index]
+                    repl_offset = int(data.value[2].value)  # type: ignore[index]
 
                     if repl_id != "?" or repl_offset != -1:
                         raise NotImplementedError(
@@ -508,8 +510,8 @@ class RedisServer:
                     await self.__send_data(writer, rdb_content)
 
                 case RedisCommand.WAIT:
-                    num_replicas = int(data.value[1].value)
-                    timeout_ms = int(data.value[2].value)
+                    num_replicas = int(data.value[1].value)  # type: ignore[index]
+                    timeout_ms = int(data.value[2].value)  # type: ignore[index]
 
                     print(
                         f"WAIT command received: num_replicas={num_replicas}, timeout={timeout_ms}ms, master_offset={self.__repl_info.master_repl_offset}"
@@ -555,7 +557,7 @@ class RedisServer:
                                 await self.__send_data(
                                     writer, RESPInteger(value=acked_replicas)
                                 )
-                                return
+                                return None
                             else:
                                 return RESPInteger(value=acked_replicas)
 
@@ -578,7 +580,7 @@ class RedisServer:
                                     await self.__send_data(
                                         writer, RESPInteger(value=acked_replicas)
                                     )
-                                    return
+                                    return None
                                 else:
                                     return RESPInteger(value=acked_replicas)
 
@@ -619,7 +621,7 @@ class RedisServer:
                         await asyncio.sleep(0.1)
 
                 case RedisCommand.TYPE:
-                    key = data.value[1].value
+                    key = data.value[1].value  # type: ignore[index]
                     if not is_return_resp:
                         await self.__send_data(
                             writer, RESPSimpleString(value=self.__data_store.type(key))
@@ -628,9 +630,9 @@ class RedisServer:
                         return RESPSimpleString(value=self.__data_store.type(key))
 
                 case RedisCommand.XADD:
-                    stream = data.value[1].value
-                    id = data.value[2].value
-                    fields = data.value[3:]
+                    stream = data.value[1].value  # type: ignore[index]
+                    id = data.value[2].value  # type: ignore[index]
+                    fields = data.value[3:]  # type: ignore[index]
 
                     if not is_return_resp:
                         await self.__send_data(
@@ -640,9 +642,9 @@ class RedisServer:
                         return self.__data_store.xadd(stream, id, fields)
 
                 case RedisCommand.XRANGE:
-                    stream = data.value[1].value
-                    start = data.value[2].value
-                    end = data.value[3].value
+                    stream = data.value[1].value  # type: ignore[index]
+                    start = data.value[2].value  # type: ignore[index]
+                    end = data.value[3].value  # type: ignore[index]
                     start = "0-0" if start == "-" else start
                     end = f"{sys.maxsize}-{sys.maxsize}" if end == "+" else end
 
@@ -654,7 +656,7 @@ class RedisServer:
                         return self.__data_store.xrange(stream, start, end)
 
                 case RedisCommand.XREAD:
-                    stream_args = [stream.value.lower() for stream in data.value[1:]]
+                    stream_args = [stream.value.lower() for stream in data.value[1:]]  # type: ignore[index]
 
                     block = None
                     block_idx = self.find_index_in_list("block", stream_args)
@@ -696,7 +698,7 @@ class RedisServer:
                                 await self.__send_data(
                                     writer, self.__data_store.xread(streams, ids)
                                 )
-                                return
+                                return None
                             else:
                                 return self.__data_store.xread(streams, ids)
                         elif block == 0:
@@ -719,7 +721,7 @@ class RedisServer:
                             return self.__data_store.xread(streams, ids)
 
                 case RedisCommand.INCR:
-                    key = data.value[1].value
+                    key = data.value[1].value  # type: ignore[index]
                     if not is_return_resp:
                         await self.__send_data(writer, self.__data_store.incr(key))
                     else:
@@ -742,17 +744,17 @@ class RedisServer:
                         await self.__send_data(
                             writer, RESPSimpleError(value="ERR EXEC without MULTI")
                         )
-                        return
+                        return None
 
                     self.__is_command_in_queue[writer] = False
                     commands = self.__command_queue.pop(writer, [])
 
                     results = RESPArray(value=[])
                     for cmd in commands:
-                        resp = await self.handle_command(
+                        resp = await self.handle_command(  # type: ignore[assignment]
                             reader, writer, cmd, is_return_resp=True
                         )
-                        results.value.append(resp)
+                        results.value.append(resp)  # type: ignore[union-attr]
 
                     await self.__send_data(writer, results)
 
@@ -764,7 +766,7 @@ class RedisServer:
                         await self.__send_data(
                             writer, RESPSimpleError(value="ERR DISCARD without MULTI")
                         )
-                        return
+                        return None
 
                     self.__is_command_in_queue[writer] = False
                     self.__command_queue.pop(writer, None)
@@ -785,6 +787,8 @@ class RedisServer:
             await self.__send_data(writer, RESPSimpleError(value=str(e)))
         except Exception as e:
             print(f"Error handling command: {e}")
+        finally:
+            return None
 
     @staticmethod
     def find_index_in_list(value: Any, lst: list) -> int:
@@ -820,7 +824,7 @@ class RedisServer:
             writer.write(serialized)
             await writer.drain()
             print(
-                f"Successfully sent {len(serialized)} bytes to {writer.get_extra_info('peername')}: {serialized}"
+                f"Successfully sent {len(serialized)} bytes to {writer.get_extra_info('peername')}: {serialized!r}"
             )
             return True
         except ConnectionError as e:
@@ -845,7 +849,7 @@ class RedisServer:
                     break
 
                 commands = self.resp_parser.parse(data)
-                print(f"Received {data} from {addr}")
+                print(f"Received {data!r} from {addr}")
 
                 for cmd in commands:
                     if isinstance(cmd, RESPSimpleString) and cmd.value == "PING":
@@ -855,7 +859,7 @@ class RedisServer:
                     elif cmd.type == RESPObjectType.ARRAY:
                         await self.handle_command(reader, writer, cmd)
                     else:
-                        print(f"Received unknown command: {cmd.serialize()}")
+                        print(f"Received unknown command: {cmd.serialize()!r}")
 
                 self.__repl_ack_offset = self.__repl_ack_offset + len(data)
 
