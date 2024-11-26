@@ -277,7 +277,7 @@ class RedisServer:
             print(f"Handling command: {data} - is_master_command: {is_master_command}")
             command = data.value[0].value.lower()
 
-            if self.__is_command_in_queue.get(writer, False) and command != RedisCommand.EXEC:
+            if self.__is_command_in_queue.get(writer, False) and command not in {RedisCommand.EXEC, RedisCommand.DISCARD}:
                 self.__command_queue[writer].append(data)
                 await self.__send_data(writer, RESPSimpleString(value="QUEUED"))
                 return
