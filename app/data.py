@@ -465,7 +465,7 @@ class RedisDataStore:
                 RESPArray(
                     value=[
                         RESPBulkString(value=id),
-                        fields
+                        RESPArray(value=fields)
                     ]
                 )
             )
