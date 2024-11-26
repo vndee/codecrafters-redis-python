@@ -636,10 +636,10 @@ class RedisServer:
                         await self.__send_data(
                             writer, self.__data_store.xadd(stream, id, fields)
                         )
-                        await self.__propagate_to_slaves(data)
+                        # await self.__propagate_to_slaves(data)
                     else:
                         resp = self.__data_store.xadd(stream, id, fields)
-                        await self.__propagate_to_slaves(data)
+                        # await self.__propagate_to_slaves(data)
                         return resp
 
                 case RedisCommand.XRANGE:
