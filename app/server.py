@@ -270,230 +270,230 @@ class RedisServer:
         if not isinstance(data, RESPArray):
             await self.__send_data(writer, RESPSimpleString(value="ERR unknown command"))
 
-        print(f"Handling command: {data} - is_master_command: {is_master_command}")
-        command = data.value[0].value.lower()
-        match command:
-            case RedisCommand.PING:
-                if not is_master_command:
-                    await self.__send_data(writer, RESPSimpleString(value="PONG"))
+        try:
+            print(f"Handling command: {data} - is_master_command: {is_master_command}")
+            command = data.value[0].value.lower()
+            match command:
+                case RedisCommand.PING:
+                    if not is_master_command:
+                        await self.__send_data(writer, RESPSimpleString(value="PONG"))
 
-            case RedisCommand.ECHO:
-                await self.__send_data(writer, RESPBulkString(value=data.value[1].value))
+                case RedisCommand.ECHO:
+                    await self.__send_data(writer, RESPBulkString(value=data.value[1].value))
 
-            case RedisCommand.SET:
-                key = data.value[1].value
-                value = data.value[2].value
+                case RedisCommand.SET:
+                    key = data.value[1].value
+                    value = data.value[2].value
 
-                i = 3
-                args: Dict[str, Any] = {}
-                while i < len(data.value):
-                    arg_name = data.value[i].value.lower()
-                    if arg_name in ("ex", "px", "exat", "pxat"):
-                        args[arg_name] = int(data.value[i + 1].value)
-                        i = i + 2
-                    elif arg_name in ("nx", "xx", "keepttl", "get"):
-                        args[arg_name] = True
-                        i = i + 1
+                    i = 3
+                    args: Dict[str, Any] = {}
+                    while i < len(data.value):
+                        arg_name = data.value[i].value.lower()
+                        if arg_name in ("ex", "px", "exat", "pxat"):
+                            args[arg_name] = int(data.value[i + 1].value)
+                            i = i + 2
+                        elif arg_name in ("nx", "xx", "keepttl", "get"):
+                            args[arg_name] = True
+                            i = i + 1
+                        else:
+                            await self.__send_data(writer, RESPSimpleString(value="ERR syntax error"))
+
+                    if self.__repl_info.role == RedisReplicationRole.MASTER:
+                        self.__repl_info.master_repl_offset = self.__repl_info.master_repl_offset + data.serialized_bytes_length
+                        self.__client_write_offsets[writer] = self.__repl_info.master_repl_offset
+                        await self.__propagate_to_slaves(data)
+
+                    resp = RESPSimpleString(value=self.__data_store.set(key, value, **args))
+                    if not is_master_command:
+                        await self.__send_data(writer, resp)
+
+                case RedisCommand.GET:
+                    key = data.value[1].value
+                    await self.__send_data(writer, self.__data_store.get(key))
+
+                case RedisCommand.CONFIG:
+                    method = data.value[1].value.lower()
+                    if method == RedisCommand.GET:
+                        param = data.value[2].value.lower()
+                        if param == "dir":
+                            await self.__send_data(writer, RESPArray(value=[RESPBulkString(value="dir"), RESPBulkString(value=self.__data_store.dir)]))
+                        if param == "dbfilename":
+                            await self.__send_data(writer, RESPArray(value=[RESPBulkString(value="dbfilename"), RESPBulkString(value=self.__data_store.dbfilename)]))
+
+                case RedisCommand.KEYS:
+                    pattern = data.value[1].value
+                    await self.__send_data(writer, RESPArray(value=[RESPBulkString(value=key) for key in self.__data_store.keys(pattern)]))
+
+                case RedisCommand.INFO:
+                    await self.__send_data(writer, self.__repl_info.serialize())
+
+                case RedisCommand.REPLCONF:
+                    attr = data.value[1].value.lower()
+
+                    if self.__repl_info.role == RedisReplicationRole.MASTER:
+                        if attr.lower() == "listening-port":
+                            self.__replica_acks[writer] = (reader, 0)
+                            print(f"New connected slaves: {writer.get_extra_info('peername')} - listening port: {data.value[2].value}")
+                        elif attr.lower() == "ack":
+                            self.__replica_acks[writer] = (reader, int(data.value[2].value))
+                            self.__request_acks[writer.get_extra_info('peername')] = False
+                            return
+                        elif attr.lower() == "capa":
+                            capa = data.value[2].value.lower()
+                            if capa == "psync2":
+                                pass
+                        else:
+                            raise NotImplementedError(f"REPLCONF {attr} is not implemented")
+
+                        await self.__send_data(writer, RESPSimpleString(value="OK"))
                     else:
-                        await self.__send_data(writer, RESPSimpleString(value="ERR syntax error"))
+                        if attr.lower() == "getack":
+                            await self.__send_data(writer, RESPArray(value=[RESPBulkString(value="REPLCONF"), RESPBulkString(value="ACK"), RESPBulkString(value=str(self.__repl_ack_offset))]))
+                            self.__request_acks[writer.get_extra_info('peername')] = False
+                        elif attr.lower() == "ack":
+                            self.__replica_acks[writer] = (reader, int(data.value[2].value))
+                            self.__request_acks[writer.get_extra_info('peername')] = False
+                        else:
+                            raise NotImplementedError(f"REPLCONF {attr} is not implemented")
 
-                if self.__repl_info.role == RedisReplicationRole.MASTER:
-                    self.__repl_info.master_repl_offset = self.__repl_info.master_repl_offset + data.serialized_bytes_length
-                    self.__client_write_offsets[writer] = self.__repl_info.master_repl_offset
-                    await self.__propagate_to_slaves(data)
+                case RedisCommand.PSYNC:
+                    repl_id = data.value[1].value
+                    repl_offset = int(data.value[2].value)
 
-                resp = RESPSimpleString(value=self.__data_store.set(key, value, **args))
-                if not is_master_command:
-                    await self.__send_data(writer, resp)
+                    if repl_id != "?" or repl_offset != -1:
+                        raise NotImplementedError("Only PSYNC with ? and -1 is supported")
 
-            case RedisCommand.GET:
-                key = data.value[1].value
-                await self.__send_data(writer, self.__data_store.get(key))
+                    rdb_content = self.__data_store.dump_to_rdb()
+                    await self.__send_data(writer, RESPSimpleString(value=f"FULLRESYNC {self.__repl_info.master_replid} {self.__repl_info.master_repl_offset}"))
+                    await self.__send_data(writer, RESPBytesLength(value=len(rdb_content)))
+                    await self.__send_data(writer, rdb_content)
 
-            case RedisCommand.CONFIG:
-                method = data.value[1].value.lower()
-                if method == RedisCommand.GET:
-                    param = data.value[2].value.lower()
-                    if param == "dir":
-                        await self.__send_data(writer, RESPArray(value=[RESPBulkString(value="dir"), RESPBulkString(value=self.__data_store.dir)]))
-                    if param == "dbfilename":
-                        await self.__send_data(writer, RESPArray(value=[RESPBulkString(value="dbfilename"), RESPBulkString(value=self.__data_store.dbfilename)]))
+                case RedisCommand.WAIT:
+                    num_replicas = int(data.value[1].value)
+                    timeout_ms = int(data.value[2].value)
 
-            case RedisCommand.KEYS:
-                pattern = data.value[1].value
-                await self.__send_data(writer, RESPArray(value=[RESPBulkString(value=key) for key in self.__data_store.keys(pattern)]))
+                    print(f"WAIT command received: num_replicas={num_replicas}, timeout={timeout_ms}ms, master_offset={self.__repl_info.master_repl_offset}")
 
-            case RedisCommand.INFO:
-                await self.__send_data(writer, self.__repl_info.serialize())
+                    # Get the latest write offset for this client
+                    client_offset = self.__repl_info.master_repl_offset
 
-            case RedisCommand.REPLCONF:
-                attr = data.value[1].value.lower()
+                    print(f"Waiting for {num_replicas} replicas to acknowledge offset {client_offset}")
+                    start_time = time.monotonic()
 
-                if self.__repl_info.role == RedisReplicationRole.MASTER:
-                    if attr.lower() == "listening-port":
-                        self.__replica_acks[writer] = (reader, 0)
-                        print(f"New connected slaves: {writer.get_extra_info('peername')} - listening port: {data.value[2].value}")
-                    elif attr.lower() == "ack":
-                        self.__replica_acks[writer] = (reader, int(data.value[2].value))
-                        self.__request_acks[writer.get_extra_info('peername')] = False
-                        return
-                    elif attr.lower() == "capa":
-                        capa = data.value[2].value.lower()
-                        if capa == "psync2":
-                            pass
-                    else:
-                        raise NotImplementedError(f"REPLCONF {attr} is not implemented")
+                    while True:
+                        # Get current acks
+                        active_replicas = [(w, r, o) for w, (r, o) in self.__replica_acks.items() if not w.is_closing()]
+                        acked_replicas = sum(1 for _, _, offset in active_replicas if offset >= client_offset)
 
-                    await self.__send_data(writer, RESPSimpleString(value="OK"))
-                else:
-                    if attr.lower() == "getack":
-                        await self.__send_data(writer, RESPArray(value=[RESPBulkString(value="REPLCONF"), RESPBulkString(value="ACK"), RESPBulkString(value=str(self.__repl_ack_offset))]))
-                        self.__request_acks[writer.get_extra_info('peername')] = False
-                    elif attr.lower() == "ack":
-                        self.__replica_acks[writer] = (reader, int(data.value[2].value))
-                        self.__request_acks[writer.get_extra_info('peername')] = False
-                    else:
-                        raise NotImplementedError(f"REPLCONF {attr} is not implemented")
+                        print(f"Currently have {acked_replicas}/{len(active_replicas)} replicas acknowledged")
 
-            case RedisCommand.PSYNC:
-                repl_id = data.value[1].value
-                repl_offset = int(data.value[2].value)
-
-                if repl_id != "?" or repl_offset != -1:
-                    raise NotImplementedError("Only PSYNC with ? and -1 is supported")
-
-                rdb_content = self.__data_store.dump_to_rdb()
-                await self.__send_data(writer, RESPSimpleString(value=f"FULLRESYNC {self.__repl_info.master_replid} {self.__repl_info.master_repl_offset}"))
-                await self.__send_data(writer, RESPBytesLength(value=len(rdb_content)))
-                await self.__send_data(writer, rdb_content)
-
-            case RedisCommand.WAIT:
-                num_replicas = int(data.value[1].value)
-                timeout_ms = int(data.value[2].value)
-
-                print(f"WAIT command received: num_replicas={num_replicas}, timeout={timeout_ms}ms, master_offset={self.__repl_info.master_repl_offset}")
-
-                # Get the latest write offset for this client
-                client_offset = self.__repl_info.master_repl_offset
-
-                print(f"Waiting for {num_replicas} replicas to acknowledge offset {client_offset}")
-                start_time = time.monotonic()
-
-                while True:
-                    # Get current acks
-                    active_replicas = [(w, r, o) for w, (r, o) in self.__replica_acks.items() if not w.is_closing()]
-                    acked_replicas = sum(1 for _, _, offset in active_replicas if offset >= client_offset)
-
-                    print(f"Currently have {acked_replicas}/{len(active_replicas)} replicas acknowledged")
-
-                    if acked_replicas >= num_replicas:
-                        print(f"Required replicas reached: {acked_replicas}")
-                        await self.__send_data(writer, RESPInteger(value=acked_replicas))
-                        for replica_writer, replica_reader, current_offset in active_replicas:
-                            self.__request_acks[replica_writer.get_extra_info('peername')] = False
-                        return
-
-                    if timeout_ms > 0:
-                        elapsed_ms = (time.monotonic() - start_time) * 1000
-                        if elapsed_ms >= timeout_ms:
-                            print(f"Timeout reached after {elapsed_ms}ms, returning current acks: {acked_replicas}")
+                        if acked_replicas >= num_replicas:
+                            print(f"Required replicas reached: {acked_replicas}")
                             await self.__send_data(writer, RESPInteger(value=acked_replicas))
                             for replica_writer, replica_reader, current_offset in active_replicas:
                                 self.__request_acks[replica_writer.get_extra_info('peername')] = False
                             return
 
-                    # Request ACKs from unacknowledged replicas
-                    for replica_writer, replica_reader, current_offset in active_replicas:
-                        print(self.__request_acks)
-                        repl_addr = replica_writer.get_extra_info('peername')
-                        if not self.__request_acks.get(repl_addr, False) and self.__replica_acks.get(replica_writer, (None, 0))[1] < client_offset:
-                            print(f"Requesting ACK from replica {replica_writer.get_extra_info('peername')}")
-                            self.__request_acks[repl_addr] = True
-                            ack_cmd = RESPArray(
-                                value=[
-                                    RESPBulkString(value="REPLCONF"),
-                                    RESPBulkString(value="GETACK"),
-                                    RESPBulkString(value="*")
-                                ]
-                            )
-                            success = await self.__send_data(replica_writer, ack_cmd)
-                            if not success:
-                                print(f"Failed to send GETACK to replica {replica_writer.get_extra_info('peername')}")
+                        if timeout_ms > 0:
+                            elapsed_ms = (time.monotonic() - start_time) * 1000
+                            if elapsed_ms >= timeout_ms:
+                                print(f"Timeout reached after {elapsed_ms}ms, returning current acks: {acked_replicas}")
+                                await self.__send_data(writer, RESPInteger(value=acked_replicas))
+                                for replica_writer, replica_reader, current_offset in active_replicas:
+                                    self.__request_acks[replica_writer.get_extra_info('peername')] = False
+                                return
 
-                    await asyncio.sleep(0.1)
+                        # Request ACKs from unacknowledged replicas
+                        for replica_writer, replica_reader, current_offset in active_replicas:
+                            print(self.__request_acks)
+                            repl_addr = replica_writer.get_extra_info('peername')
+                            if not self.__request_acks.get(repl_addr, False) and self.__replica_acks.get(replica_writer, (None, 0))[1] < client_offset:
+                                print(f"Requesting ACK from replica {replica_writer.get_extra_info('peername')}")
+                                self.__request_acks[repl_addr] = True
+                                ack_cmd = RESPArray(
+                                    value=[
+                                        RESPBulkString(value="REPLCONF"),
+                                        RESPBulkString(value="GETACK"),
+                                        RESPBulkString(value="*")
+                                    ]
+                                )
+                                success = await self.__send_data(replica_writer, ack_cmd)
+                                if not success:
+                                    print(f"Failed to send GETACK to replica {replica_writer.get_extra_info('peername')}")
 
-            case RedisCommand.TYPE:
-                key = data.value[1].value
-                await self.__send_data(writer, RESPSimpleString(value=self.__data_store.type(key)))
+                        await asyncio.sleep(0.1)
 
-            case RedisCommand.XADD:
-                stream = data.value[1].value
-                id = data.value[2].value
-                fields = data.value[3:]
-                try:
+                case RedisCommand.TYPE:
+                    key = data.value[1].value
+                    await self.__send_data(writer, RESPSimpleString(value=self.__data_store.type(key)))
+
+                case RedisCommand.XADD:
+                    stream = data.value[1].value
+                    id = data.value[2].value
+                    fields = data.value[3:]
                     await self.__send_data(writer, RESPBulkString(value=self.__data_store.xadd(stream, id, fields)))
-                except RedisError as e:
-                    await self.__send_data(writer, RESPSimpleError(value=str(e)))
 
-            case RedisCommand.XRANGE:
-                stream = data.value[1].value
-                start = data.value[2].value
-                end = data.value[3].value
-                start = "0-0" if start == "-" else start
-                end = f"{sys.maxsize}-{sys.maxsize}" if end == "+" else end
+                case RedisCommand.XRANGE:
+                    stream = data.value[1].value
+                    start = data.value[2].value
+                    end = data.value[3].value
+                    start = "0-0" if start == "-" else start
+                    end = f"{sys.maxsize}-{sys.maxsize}" if end == "+" else end
 
-                await self.__send_data(writer, self.__data_store.xrange(stream, start, end))
+                    await self.__send_data(writer, self.__data_store.xrange(stream, start, end))
 
-            case RedisCommand.XREAD:
-                stream_args = [stream.value.lower() for stream in data.value[1:]]
+                case RedisCommand.XREAD:
+                    stream_args = [stream.value.lower() for stream in data.value[1:]]
 
-                block = None
-                block_idx = self.find_index_in_list("block", stream_args)
-                if block_idx != -1:
-                    block = int(stream_args[block_idx + 1])
-                    stream_args = stream_args[:block_idx] + stream_args[block_idx + 2:]
+                    block = None
+                    block_idx = self.find_index_in_list("block", stream_args)
+                    if block_idx != -1:
+                        block = int(stream_args[block_idx + 1])
+                        stream_args = stream_args[:block_idx] + stream_args[block_idx + 2:]
 
-                stream_idx = self.find_index_in_list("streams", stream_args)
-                diff_idx = max(self.find_index_in_list("count", stream_args), self.find_index_in_list("block", stream_args))
-                if diff_idx < stream_idx:
-                    diff_idx = len(stream_args)
-                else:
-                    diff_idx = diff_idx + 1
+                    stream_idx = self.find_index_in_list("streams", stream_args)
+                    diff_idx = max(self.find_index_in_list("count", stream_args), self.find_index_in_list("block", stream_args))
+                    if diff_idx < stream_idx:
+                        diff_idx = len(stream_args)
+                    else:
+                        diff_idx = diff_idx + 1
 
-                stream_args = stream_args[stream_idx + 1:diff_idx]
+                    stream_args = stream_args[stream_idx + 1:diff_idx]
 
-                pivot = len(stream_args) >> 1
-                streams = stream_args[: pivot]
-                ids = stream_args[pivot:]
-                for i in range(len(ids)):
-                    if ids[i] == "$":
-                        ids[i] = self.__data_store.get_current_max_stream_id(streams[i])
+                    pivot = len(stream_args) >> 1
+                    streams = stream_args[: pivot]
+                    ids = stream_args[pivot:]
+                    for i in range(len(ids)):
+                        if ids[i] == "$":
+                            ids[i] = self.__data_store.get_current_max_stream_id(streams[i])
 
-                print(f"XREAD pivot: {pivot}, streams: {streams}, ids: {ids}, stream_args: {stream_args}, block: {block}")
+                    print(f"XREAD pivot: {pivot}, streams: {streams}, ids: {ids}, stream_args: {stream_args}, block: {block}")
 
-                if block is not None:
-                    if block > 0:
-                        await asyncio.sleep(block/1000)
+                    if block is not None:
+                        if block > 0:
+                            await asyncio.sleep(block/1000)
+                            await self.__send_data(writer, self.__data_store.xread(streams, ids))
+                        elif block == 0:
+                            while True:
+                                data = self.__data_store.xread(streams, ids)
+                                if data.type != RESPObjectType.BULK_STRING:
+                                    await self.__send_data(writer, data)
+                                    break
+                                await asyncio.sleep(0.1)
+                    else:
                         await self.__send_data(writer, self.__data_store.xread(streams, ids))
-                    elif block == 0:
-                        while True:
-                            data = self.__data_store.xread(streams, ids)
-                            if data.type != RESPObjectType.BULK_STRING:
-                                await self.__send_data(writer, data)
-                                break
-                            await asyncio.sleep(0.1)
-                else:
-                    await self.__send_data(writer, self.__data_store.xread(streams, ids))
 
-            case RedisCommand.INCR:
-                key = data.value[1].value
-                await self.__send_data(writer, self.__data_store.incr(key))
+                case RedisCommand.INCR:
+                    key = data.value[1].value
+                    await self.__send_data(writer, self.__data_store.incr(key))
 
-            case _:
-                await self.__send_data(writer, RESPSimpleString(value="ERR unknown command"))
+                case _:
+                    await self.__send_data(writer, RESPSimpleString(value="ERR unknown command"))
 
-        if is_master_command:
-            self.__repl_ack_offset = self.__repl_ack_offset + data.bytes_length
+            if is_master_command:
+                self.__repl_ack_offset = self.__repl_ack_offset + data.bytes_length
+        except RedisError as e:
+            await self.__send_data(writer, RESPSimpleError(value=str(e)))
 
     @staticmethod
     def find_index_in_list(value: Any, lst: list) -> int:
