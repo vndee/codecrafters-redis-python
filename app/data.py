@@ -472,6 +472,24 @@ class RedisDataStore:
 
         return result
 
+    def get_current_max_stream_id(self, key: str) -> str:
+        """
+        Get the current maximum stream ID for a given key.
+        :param key: str
+        :return:
+        """
+        if key not in self.__data_dict[self.database_idx]:
+            return "0-0"
+
+        stream = self.__data_dict[self.database_idx][key]
+        if stream.data_type != RDBEncoding.STREAM:
+            raise RedisError("ERR: Operation against a key holding the wrong kind of value")
+
+        if not stream.value:
+            return "0-0"
+
+        return stream.value[-1][0]
+
     def xread(self, keys: list, ids: list) -> RESPArray | RESPBulkString:
         """
         Return never-ending stream of data from the stream.
@@ -480,7 +498,6 @@ class RedisDataStore:
         :return:
         """
         result = RESPArray(value=[])
-        print(f"Keys: {keys}, IDs: {ids}")
         for key, id in zip(keys, ids):
             if key not in self.__data_dict[self.database_idx]:
                 continue

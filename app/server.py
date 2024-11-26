@@ -465,6 +465,10 @@ class RedisServer:
                 pivot = len(stream_args) >> 1
                 streams = stream_args[: pivot]
                 ids = stream_args[pivot:]
+                for i in range(len(ids)):
+                    if ids[i] == "$":
+                        ids[i] = self.__data_store.get_current_max_stream_id(streams[i])
+
                 print(f"XREAD pivot: {pivot}, streams: {streams}, ids: {ids}, stream_args: {stream_args}, block: {block}")
 
                 if block is not None:
