@@ -754,7 +754,8 @@ class RedisServer:
                         resp = await self.handle_command(  # type: ignore[assignment]
                             reader, writer, cmd, is_return_resp=True
                         )
-                        results.value.append(resp)  # type: ignore[union-attr]
+                        if resp is not None:
+                            results.value.append(resp)  # type: ignore[union-attr]
 
                     await self.__send_data(writer, results)
 
