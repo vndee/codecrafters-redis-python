@@ -530,9 +530,7 @@ class RedisDataStore:
                 )
             )
 
-        print(result)
         return result
-
 
     def dump_to_rdb(self) -> bytes:
         """
