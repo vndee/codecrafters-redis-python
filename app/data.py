@@ -35,6 +35,15 @@ RedisHash = Dict[Any, Any]
 RedisNone = None
 
 
+class RedisError(Exception):
+    def __init__(self, message: str):
+        self.message = message
+        super().__init__(self.message)
+
+    def __str__(self):
+        return self.message
+
+
 @dataclass
 class RedisDataObject:
     """
@@ -359,9 +368,22 @@ class RedisDataStore:
 
         stream = self.__data_dict[self.database_idx][key]
         if stream.data_type != RDBEncoding.STREAM:
-            return "ERR: Operation against a key holding the wrong kind of value"
+            raise RedisError("ERR: Operation against a key holding the wrong kind of value")
 
-        stream.value.append(fields)
+        prev_id, _ = stream.value[-1] if stream.value else ("0-0", {})
+        if prev_id == id:
+            raise RedisError("ERR The ID specified in XADD is equal or smaller than the target stream top item")
+
+        prev_timestamp_ms, prev_seq = prev_id.split("-")
+        current_timestamp_ms, current_seq = id.split("-")
+
+        if current_timestamp_ms < prev_timestamp_ms:
+            raise RedisError("ERR The ID specified in XADD is equal or smaller than the target stream top item")
+
+        if current_timestamp_ms == prev_timestamp_ms and current_seq <= prev_seq:
+            raise RedisError("ERR The ID specified in XADD is equal or smaller than the target stream top item")
+
+        stream.value.append((id, fields))
         return id
 
     def dump_to_rdb(self) -> bytes:

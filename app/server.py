@@ -16,7 +16,7 @@ from app.resp import (
     RESPBytesLength,
     RESPInteger
 )
-from app.data import RedisCommand, RedisDataStore
+from app.data import RedisCommand, RedisDataStore, RedisError
 
 
 class RedisReplicationRole(StrEnum):
@@ -428,7 +428,10 @@ class RedisServer:
                 stream = data.value[1].value
                 id = data.value[2].value
                 fields = data.value[3:]
-                await self.__send_data(writer, RESPBulkString(value=self.__data_store.xadd(stream, id, fields)))
+                try:
+                    await self.__send_data(writer, RESPBulkString(value=self.__data_store.xadd(stream, id, fields)))
+                except RedisError as e:
+                    await self.__send_data(writer, RESPSimpleString(value=str(e)))
 
             case _:
                 await self.__send_data(writer, RESPSimpleString(value="ERR unknown command"))
