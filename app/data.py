@@ -480,7 +480,7 @@ class RedisDataStore:
         :return:
         """
         result = RESPArray(value=[])
-
+        print(f"Keys: {keys}, IDs: {ids}")
         for key, id in zip(keys, ids):
             if key not in self.__data_dict[self.database_idx]:
                 continue

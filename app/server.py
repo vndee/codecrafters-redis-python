@@ -467,20 +467,19 @@ class RedisServer:
                 ids = stream_args[pivot:]
                 print(f"XREAD pivot: {pivot}, streams: {streams}, ids: {ids}, stream_args: {stream_args}, block: {block}")
 
-                if block:
+                if block is not None:
                     if block > 0:
                         await asyncio.sleep(block/1000)
                         await self.__send_data(writer, self.__data_store.xread(streams, ids))
                     elif block == 0:
                         while True:
                             data = self.__data_store.xread(streams, ids)
-                            print(f"XREAD data: {data}")
                             if data.type != RESPObjectType.BULK_STRING:
                                 await self.__send_data(writer, data)
                                 break
                             await asyncio.sleep(0.1)
-                    else:
-                        await self.__send_data(writer, self.__data_store.xread(streams, ids))
+                else:
+                    await self.__send_data(writer, self.__data_store.xread(streams, ids))
 
             case _:
                 await self.__send_data(writer, RESPSimpleString(value="ERR unknown command"))
