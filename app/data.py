@@ -461,7 +461,7 @@ class RedisDataStore:
                 break
 
             print(f"ID: {id}, Fields: {fields}")
-            result.value.extend(
+            result.value.append(
                 RESPArray(
                     value=[
                         RESPBulkString(value=id),
