@@ -25,6 +25,7 @@ class RDBEncoding(IntEnum):
     ZSET_ZIPLIST = 12
     HASH_ZIPLIST = 13
     LIST_QUICKLIST = 14
+    STREAM = 15
 
 
 class RDBParser:

@@ -24,13 +24,14 @@ class RedisCommand(StrEnum):
     FULLRESYNC = "fullresync"
     WAIT = "wait"
     TYPE = "type"
+    XADD = "xadd"
 
 
 RedisString = str
-RedisList = List[str]
-RedisSet = Set[str]
-RedisZSet = Dict[str, float]
-RedisHash = Dict[str, str]
+RedisList = List[Any]
+RedisSet = Set[Any]
+RedisZSet = Dict[Any, Any]
+RedisHash = Dict[Any, Any]
 RedisNone = None
 
 
@@ -80,6 +81,14 @@ class RedisDataObject:
     def create_hash(cls, value: RedisHash, expire_at: Optional[int] = None) -> "RedisDataObject":
         return cls(
             data_type=RDBEncoding.HASH,
+            expire_at=expire_at,
+            value=value,
+        )
+
+    @classmethod
+    def create_stream(cls, value: RedisList, expire_at: Optional[int] = None) -> "RedisDataObject":
+        return cls(
+            data_type=RDBEncoding.STREAM,
             expire_at=expire_at,
             value=value,
         )
@@ -336,6 +345,24 @@ class RedisDataStore:
             return "none"
 
         return data_obj.data_type.name.lower()
+
+    def xadd(self, key: str, id: str, fields: Dict[str, str]):
+        """
+        Appends a new entry to a stream.
+        :param key: str
+        :param id: str
+        :param fields: Dict[str, str]
+        :return:
+        """
+        if key not in self.__data_dict[self.database_idx]:
+            self.__data_dict[self.database_idx][key] = RedisDataObject.create_stream([], expire_at=None)
+
+        stream = self.__data_dict[self.database_idx][key]
+        if stream.data_type != RDBEncoding.LIST:
+            return "ERR: Operation against a key holding the wrong kind of value"
+
+        stream.value.append(fields)
+        return id
 
     def dump_to_rdb(self) -> bytes:
         """

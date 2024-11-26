@@ -424,6 +424,12 @@ class RedisServer:
                 key = data.value[1].value
                 await self.__send_data(writer, RESPSimpleString(value=self.__data_store.type(key)))
 
+            case RedisCommand.XADD:
+                stream = data.value[1].value
+                id = data.value[2].value
+                fields = data.value[3:]
+                await self.__send_data(writer, RESPBulkString(value=self.__data_store.xadd(stream, id, fields)))
+
             case _:
                 await self.__send_data(writer, RESPSimpleString(value="ERR unknown command"))
 
