@@ -358,7 +358,7 @@ class RedisDataStore:
             self.__data_dict[self.database_idx][key] = RedisDataObject.create_stream([], expire_at=None)
 
         stream = self.__data_dict[self.database_idx][key]
-        if stream.data_type != RDBEncoding.LIST:
+        if stream.data_type != RDBEncoding.STREAM:
             return "ERR: Operation against a key holding the wrong kind of value"
 
         stream.value.append(fields)
