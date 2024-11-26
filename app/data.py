@@ -388,8 +388,9 @@ class RedisDataStore:
         if current_timestamp_ms == prev_timestamp_ms and current_seq <= prev_seq:
             raise RedisError("ERR The ID specified in XADD is equal or smaller than the target stream top item")
 
-        stream.value.append((id, fields))
-        return f"{current_timestamp_ms}-{current_seq}"
+        new_id = f"{current_timestamp_ms}-{current_seq}"
+        stream.value.append((new_id, fields))
+        return new_id
 
     def dump_to_rdb(self) -> bytes:
         """
