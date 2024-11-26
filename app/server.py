@@ -722,8 +722,11 @@ class RedisServer:
                     key = data.value[1].value  # type: ignore[index]
                     if not is_return_resp:
                         await self.__send_data(writer, self.__data_store.incr(key))
+                        await self.__propagate_to_slaves(data)
                     else:
-                        return self.__data_store.incr(key)
+                        resp = self.__data_store.incr(key)
+                        await self.__propagate_to_slaves(data)
+                        return resp
 
                 case RedisCommand.MULTI:
                     self.__is_command_in_queue[writer] = True
