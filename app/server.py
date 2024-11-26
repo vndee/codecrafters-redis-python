@@ -466,6 +466,7 @@ class RedisServer:
                 ids = stream_args[pivot:]
                 print(f"XREAD pivot: {pivot}, streams: {streams}, ids: {ids}, stream_args: {stream_args}, block: {block}")
 
+                await asyncio.sleep(block/1000)
                 await self.__send_data(writer, self.__data_store.xread(streams, ids))
 
             case _:
