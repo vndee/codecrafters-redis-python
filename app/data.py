@@ -32,6 +32,7 @@ class RedisCommand(StrEnum):
     INCR = "incr"
     MULTI = "multi"
     EXEC = "exec"
+    DISCARD = "discard"
 
 
 RedisInt = int

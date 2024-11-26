@@ -580,6 +580,19 @@ class RedisServer:
 
                     await self.__send_data(writer, results)
 
+                case RedisCommand.DISCARD:
+                    if writer not in self.__is_command_in_queue or not self.__is_command_in_queue[writer]:
+                        await self.__send_data(writer, RESPSimpleError(value="ERR DISCARD without MULTI"))
+                        return
+
+                    self.__is_command_in_queue[writer] = False
+                    self.__command_queue.pop(writer, None)
+
+                    if not is_return_resp:
+                        await self.__send_data(writer, RESPSimpleString(value="OK"))
+                    else:
+                        return RESPSimpleString(value="OK")
+
                 case _:
                     await self.__send_data(writer, RESPSimpleString(value="ERR unknown command"))
 
