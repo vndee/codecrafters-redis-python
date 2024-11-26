@@ -720,11 +720,10 @@ class RedisServer:
 
                 case RedisCommand.INCR:
                     key = data.value[1].value  # type: ignore[index]
-                    print(f"INCR key: {key}, is_return_resp: {is_return_resp}")
                     if not is_return_resp:
                         await self.__send_data(writer, self.__data_store.incr(key))
-                        return None
                     else:
+                        print(f"INCR key: {key}, is_return_resp: {is_return_resp}")
                         return self.__data_store.incr(key)
 
                 case RedisCommand.MULTI:
