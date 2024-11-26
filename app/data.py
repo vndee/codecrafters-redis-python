@@ -576,6 +576,7 @@ class RedisDataStore:
             return RESPInteger(value=1)
 
         data_obj = self.__data_dict[self.database_idx][key]
+        print(f"Data object: {data_obj.serialize()}")
         if data_obj.data_type != RDBEncoding.STRING:
             raise RedisError("ERR value is not an integer or out of range")
 
