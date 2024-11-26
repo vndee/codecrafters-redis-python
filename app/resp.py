@@ -175,7 +175,7 @@ class RESPSimpleError(RESPObject):
 @dataclass
 class RESPNull(RESPObject):
     def __init__(self, **kwargs):
-        super().__init__(type=RESPObjectType.NULL, **kwargs)
+        super().__init__(type=RESPObjectType.NULL, value=None, bytes_length=0)
 
     def serialize(self) -> bytes:
         return b"_\r\n"
