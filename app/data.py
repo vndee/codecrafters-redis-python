@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from typing import Dict, Any, Optional, List, Set, Union
 
 from app.rdb import RDBParser, RDBEncoding
-from app.resp import RESPArray, RESPBulkString, RESPObject, RESPInteger
+from app.resp import RESPArray, RESPBulkString, RESPObject, RESPInteger, RESPNull
 
 
 class RedisCommand(StrEnum):
@@ -309,21 +309,21 @@ class RedisDataStore:
 
         return old_value if get else "OK"
 
-    def get(self, key: str) -> Optional[RedisString]:
+    def get(self, key: str) -> RESPObject:
         """
         Get the value of key. If the key does not exist the special value nil is returned.
         :param key:
         :return:
         """
         if key not in self.__data_dict[self.database_idx]:
-            return None
+            return RESPNull()
 
         data_obj = self.__data_dict[self.database_idx][key]
         if data_obj.is_expired():
             del self.__data_dict[self.database_idx][key]
-            return None
+            return RESPNull()
 
-        return data_obj.value
+        return RESPBulkString(value=str(data_obj.value))
 
     def keys(self, pattern: str) -> List[str]:
         """
