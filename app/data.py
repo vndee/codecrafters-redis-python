@@ -1,5 +1,6 @@
 import os
 import re
+import sys
 import time
 import tempfile
 from enum import StrEnum
@@ -428,7 +429,7 @@ class RedisDataStore:
 
         if "-" not in upper_bound:
             upper_bound_timestamp_ms = int(upper_bound)
-            upper_bound_timestamp_ms, upper_bound_seq = int(upper_bound_timestamp_ms), int(float("inf"))
+            upper_bound_timestamp_ms, upper_bound_seq = int(upper_bound_timestamp_ms), sys.maxsize
         else:
             upper_bound_timestamp_ms, upper_bound_seq = upper_bound.split("-")
             upper_bound_timestamp_ms, upper_bound_seq = int(upper_bound_timestamp_ms), int(upper_bound_seq)
