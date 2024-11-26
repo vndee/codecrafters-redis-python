@@ -457,8 +457,8 @@ class RedisServer:
                 stream_args = stream_args[stream_idx + 1:diff_idx]
 
                 pivot = len(stream_args) >> 1
-                streams = stream_args[: pivot + 1]
-                ids = stream_args[pivot + 1:]
+                streams = stream_args[: pivot]
+                ids = stream_args[pivot:]
                 print(f"pivot: {pivot}, streams: {streams}, ids: {ids}, stream_args: {stream_args}")
 
             case _:
