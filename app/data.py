@@ -30,6 +30,7 @@ class RedisCommand(StrEnum):
     XRANGE = "xrange"
     XREAD = "xread"
     INCR = "incr"
+    MULTI = "multi"
 
 
 RedisInt = int

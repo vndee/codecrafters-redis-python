@@ -4,7 +4,7 @@ import time
 import asyncio
 import argparse
 from enum import StrEnum
-from typing import Any, Dict, Set, Optional
+from typing import Any, Dict, List, Optional
 from dataclasses import dataclass
 
 from app.resp import (
@@ -93,6 +93,9 @@ class RedisServer:
         self.__client_write_offsets: Dict[asyncio.StreamWriter, int] = {}
         self.__replica_acks: Dict[asyncio.StreamWriter, (asyncio.StreamReader, int)] = {}
         self.__request_acks: Dict[asyncio.StreamWriter, bool] = {}
+
+        self.__is_command_in_queue: Dict[asyncio.StreamWriter, bool] = {}
+        self.__command_queue: Dict[asyncio.StreamWriter, List[RESPObject]] = {}
 
     async def initialize(self):
         """
@@ -486,6 +489,11 @@ class RedisServer:
                 case RedisCommand.INCR:
                     key = data.value[1].value
                     await self.__send_data(writer, self.__data_store.incr(key))
+
+                case RedisCommand.MULTI:
+                    self.__is_command_in_queue[writer] = True
+                    self.__command_queue[writer] = []
+                    await self.__send_data(writer, RESPSimpleString(value="OK"))
 
                 case _:
                     await self.__send_data(writer, RESPSimpleString(value="ERR unknown command"))
