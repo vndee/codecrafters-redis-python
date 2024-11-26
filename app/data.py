@@ -374,12 +374,19 @@ class RedisDataStore:
         prev_timestamp_ms, prev_seq = prev_id.split("-")
         prev_timestamp_ms, prev_seq = int(prev_timestamp_ms), int(prev_seq)
 
-        current_timestamp_ms, current_seq = id.split("-")
-        if current_seq == "*":
-            if int(current_timestamp_ms) == prev_timestamp_ms:
+        if id == "*":
+            current_timestamp_ms = int(time.time() * 1000)
+            if current_timestamp_ms == prev_timestamp_ms:
                 current_seq = prev_seq + 1
             else:
                 current_seq = 0
+        else:
+            current_timestamp_ms, current_seq = id.split("-")
+            if current_seq == "*":
+                if int(current_timestamp_ms) == prev_timestamp_ms:
+                    current_seq = prev_seq + 1
+                else:
+                    current_seq = 0
 
         current_timestamp_ms, current_seq = int(current_timestamp_ms), int(current_seq)
         if current_timestamp_ms <= 0 and current_seq <= 0:
