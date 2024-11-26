@@ -566,7 +566,7 @@ class RedisServer:
 
                 case RedisCommand.EXEC:
                     if writer not in self.__is_command_in_queue or not self.__is_command_in_queue[writer]:
-                        await self.__send_data(writer, RESPSimpleString(value="ERR EXEC without MULTI"))
+                        await self.__send_data(writer, RESPSimpleError(value="ERR EXEC without MULTI"))
                         return
 
                     self.__is_command_in_queue[writer] = False
