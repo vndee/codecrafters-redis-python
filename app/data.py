@@ -518,6 +518,7 @@ class RedisDataStore:
                 )
             )
 
+        print(result)
         return result
 
 
