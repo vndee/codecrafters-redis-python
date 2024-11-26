@@ -421,19 +421,19 @@ class RedisDataStore:
         if stream.data_type != RDBEncoding.STREAM:
             raise RedisError("ERR: Operation against a key holding the wrong kind of value")
 
-        if "_" not in lower_bound:
+        if "-" not in lower_bound:
             lower_bound = f"{lower_bound}-0"
-        print(f"Lower bound: {lower_bound}")
+
         lower_bound_timestamp_ms, lower_bound_seq = lower_bound.split("-")
         lower_bound_timestamp_ms, lower_bound_seq = int(lower_bound_timestamp_ms), int(lower_bound_seq)
-        print(f"Lower bound: {lower_bound_timestamp_ms}, {lower_bound_seq}")
-        if "_" not in upper_bound:
+
+        if "-" not in upper_bound:
             upper_bound_timestamp_ms = int(upper_bound)
             upper_bound_timestamp_ms, upper_bound_seq = int(upper_bound_timestamp_ms), int(float("inf"))
         else:
             upper_bound_timestamp_ms, upper_bound_seq = upper_bound.split("-")
             upper_bound_timestamp_ms, upper_bound_seq = int(upper_bound_timestamp_ms), int(upper_bound_seq)
-        print(f"Upper bound: {upper_bound_timestamp_ms}, {upper_bound_seq}")
+
         if lower_bound_timestamp_ms < 0 or lower_bound_seq < 0:
             raise RedisError("ERR The ID specified in XRANGE must be greater than 0-0")
 
