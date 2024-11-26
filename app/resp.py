@@ -4,7 +4,6 @@ from typing import Optional, Any, List
 from abc import ABC, abstractmethod
 
 
-# Your existing enums
 class RESPObjectTypeCategory(StrEnum):
     SIMPLE = "simple"
     AGGREGATE = "aggregate"
