@@ -640,6 +640,7 @@ class RedisServer:
                     else:
                         resp = self.__data_store.xadd(stream, id, fields)
                         await self.__propagate_to_slaves(data)
+                        return resp
 
                 case RedisCommand.XRANGE:
                     stream = data.value[1].value  # type: ignore[index]
