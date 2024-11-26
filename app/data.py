@@ -274,6 +274,9 @@ class RedisDataStore:
         :param get: bool - Return the old value stored at key, or None when key did not exist.
         :return:
         """
+        if isinstance(value, str) and value.isdigit():
+            value = int(value)
+
         old_value = None
         if key in self.__data_dict:
             old_value = self.__data_dict[self.database_idx][key].value
