@@ -279,6 +279,7 @@ class RedisServer:
 
             if self.__is_command_in_queue.get(writer, False) and command != RedisCommand.EXEC:
                 self.__command_queue[writer].append(data)
+                await self.__send_data(writer, RESPSimpleString(value="QUEUED"))
                 return
 
             match command:
