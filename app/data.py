@@ -472,7 +472,7 @@ class RedisDataStore:
                     ]
                 )
             )
-
+        print(f"XRANGE Result: {result}")
         return result
 
     def dump_to_rdb(self) -> bytes:
