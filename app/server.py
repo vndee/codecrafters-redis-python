@@ -420,6 +420,10 @@ class RedisServer:
 
                     await asyncio.sleep(0.1)
 
+            case RedisCommand.TYPE:
+                key = data.value[1].value
+                await self.__send_data(writer, RESPSimpleString(value=self.__data_store.type(key)))
+
             case _:
                 await self.__send_data(writer, RESPSimpleString(value="ERR unknown command"))
 

@@ -23,6 +23,7 @@ class RedisCommand(StrEnum):
     PSYNC = "psync"
     FULLRESYNC = "fullresync"
     WAIT = "wait"
+    TYPE = "type"
 
 
 RedisString = str
@@ -318,6 +319,23 @@ class RedisDataStore:
                 matched_keys.append(key)
 
         return matched_keys
+
+    def type(self, key: str) -> str:
+        """
+        Returns the string representation of the type of the value stored at key.
+        The different types that can be returned are: string, list, set, zset, hash and none.
+        :param key:
+        :return:
+        """
+        if key not in self.__data_dict[self.database_idx]:
+            return "none"
+
+        data_obj = self.__data_dict[self.database_idx][key]
+        if data_obj.is_expired():
+            del self.__data_dict[self.database_idx][key]
+            return "none"
+
+        return data_obj.data_type.name
 
     def dump_to_rdb(self) -> bytes:
         """
