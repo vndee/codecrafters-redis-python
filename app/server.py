@@ -586,6 +586,8 @@ class RedisServer:
                 self.__repl_ack_offset = self.__repl_ack_offset + data.bytes_length
         except RedisError as e:
             await self.__send_data(writer, RESPSimpleError(value=str(e)))
+        except Exception as e:
+            print(f"Error handling command: {e}")
 
     @staticmethod
     def find_index_in_list(value: Any, lst: list) -> int:
