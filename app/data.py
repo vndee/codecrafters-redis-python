@@ -472,7 +472,7 @@ class RedisDataStore:
 
         return result
 
-    def xread(self, keys: list, ids: list) -> RESPArray:
+    def xread(self, keys: list, ids: list) -> RESPArray | RESPBulkString:
         """
         Return never-ending stream of data from the stream.
         :param keys:
@@ -529,8 +529,14 @@ class RedisDataStore:
                     ]
                 )
             )
-        print(result)
-        return result
+
+        has_entries = False
+        for entry in result.value:
+            if entry.value[1].value:
+                has_entries = True
+                break
+
+        return result if has_entries else RESPBulkString(value="-1")
 
     def dump_to_rdb(self) -> bytes:
         """

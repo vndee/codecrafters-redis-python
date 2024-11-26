@@ -173,6 +173,16 @@ class RESPSimpleError(RESPObject):
         return f"-{self.value}\r\n".encode()
 
 
+@dataclass
+class RESPNull(RESPObject):
+    def __init__(self, **kwargs):
+        super().__init__(type=RESPObjectType.NULL, **kwargs)
+
+    def serialize(self) -> bytes:
+        return b"_\r\n"
+
+
+
 class RESPParser:
     def __init__(self, protocol_version: RESPProtocolVersion = RESPProtocolVersion.RESP2):
         self.protocol_version = protocol_version
