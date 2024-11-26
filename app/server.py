@@ -308,7 +308,7 @@ class RedisServer:
 
             case RedisCommand.GET:
                 key = data.value[1].value
-                await self.__send_data(writer, RESPBulkString(value=self.__data_store.get(key)))
+                await self.__send_data(writer, RESPBulkString(value=str(self.__data_store.get(key))))
 
             case RedisCommand.CONFIG:
                 method = data.value[1].value.lower()
@@ -504,7 +504,6 @@ class RedisServer:
             return lst.index(value)
         except ValueError:
             return -1
-
 
     async def __send_data(self, writer: asyncio.StreamWriter, data: RESPObject | bytes) -> bool:
         """
