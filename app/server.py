@@ -376,6 +376,7 @@ class RedisServer:
 
                 case RedisCommand.GET:
                     key = data.value[1].value
+                    print(f"GET key: {key} - {self.__data_store.get(key)}")
                     if not is_return_resp:
                         await self.__send_data(writer, self.__data_store.get(key))
                     else:
