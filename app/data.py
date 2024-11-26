@@ -536,7 +536,7 @@ class RedisDataStore:
                 has_entries = True
                 break
 
-        return result if has_entries else RESPBulkString(value="-1")
+        return result if has_entries else RESPBulkString(value=None)
 
     def dump_to_rdb(self) -> bytes:
         """
