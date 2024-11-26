@@ -293,7 +293,7 @@ class RedisServer:
             except Exception as e:
                 print(f"Error closing failed replica connection: {e}")
 
-    async def handle_command(
+    async def handle_command(  # type: ignore[return]
         self,
         reader: asyncio.StreamReader,
         writer: asyncio.StreamWriter,
@@ -307,7 +307,9 @@ class RedisServer:
             )
 
         try:
-            print(f"Handling command: {data} - is_master_command: {is_master_command} - is_return_resp: {is_return_resp}")
+            print(
+                f"Handling command: {data} - is_master_command: {is_master_command} - is_return_resp: {is_return_resp}"
+            )
             command = data.value[0].value.lower()  # type: ignore[index]
 
             if self.__is_command_in_queue.get(writer, False) and command not in {
@@ -386,7 +388,7 @@ class RedisServer:
                     if method == RedisCommand.GET:
                         param = data.value[2].value.lower()  # type: ignore[index]
                         if param == "dir":
-                            resp = RESPArray(
+                            resp = RESPArray(  # type: ignore[assignment]
                                 value=[
                                     RESPBulkString(value="dir"),
                                     RESPBulkString(value=self.__data_store.dir),
@@ -397,7 +399,7 @@ class RedisServer:
                             else:
                                 return resp
                         if param == "dbfilename":
-                            resp = RESPArray(
+                            resp = RESPArray(  # type: ignore[assignment]
                                 value=[
                                     RESPBulkString(value="dbfilename"),
                                     RESPBulkString(value=self.__data_store.dbfilename),
@@ -410,7 +412,7 @@ class RedisServer:
 
                 case RedisCommand.KEYS:
                     pattern = data.value[1].value  # type: ignore[index]
-                    resp = RESPArray(
+                    resp = RESPArray(  # type: ignore[assignment]
                         value=[
                             RESPBulkString(value=key)
                             for key in self.__data_store.keys(pattern)
@@ -422,7 +424,7 @@ class RedisServer:
                         return resp
 
                 case RedisCommand.INFO:
-                    resp = self.__repl_info.serialize()
+                    resp = self.__repl_info.serialize()  # type: ignore[assignment]
                     if not is_return_resp:
                         await self.__send_data(writer, resp)
                     else:
@@ -638,7 +640,7 @@ class RedisServer:
                         )
                         # await self.__propagate_to_slaves(data)
                     else:
-                        resp = self.__data_store.xadd(stream, id, fields)
+                        resp = self.__data_store.xadd(stream, id, fields)  # type: ignore[assignment]
                         # await self.__propagate_to_slaves(data)
                         return resp
 
@@ -727,7 +729,7 @@ class RedisServer:
                         await self.__send_data(writer, self.__data_store.incr(key))
                         # await self.__propagate_to_slaves(data)
                     else:
-                        resp = self.__data_store.incr(key)
+                        resp = self.__data_store.incr(key)  # type: ignore[assignment]
                         # await self.__propagate_to_slaves(data)
                         return resp
 
