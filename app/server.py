@@ -447,6 +447,11 @@ class RedisServer:
             case RedisCommand.XREAD:
                 stream_args = [stream.value.lower() for stream in data.value[1:]]
 
+                block_idx = self.find_index_in_list("block", stream_args)
+                if block_idx != -1:
+                    block = int(stream_args[block_idx + 1])
+                    stream_args = stream_args[:block_idx] + stream_args[block_idx + 2:]
+
                 stream_idx = self.find_index_in_list("streams", stream_args)
                 diff_idx = max(self.find_index_in_list("count", stream_args), self.find_index_in_list("block", stream_args))
                 if diff_idx < stream_idx:
@@ -459,7 +464,7 @@ class RedisServer:
                 pivot = len(stream_args) >> 1
                 streams = stream_args[: pivot]
                 ids = stream_args[pivot:]
-                print(f"XREAD pivot: {pivot}, streams: {streams}, ids: {ids}, stream_args: {stream_args}")
+                print(f"XREAD pivot: {pivot}, streams: {streams}, ids: {ids}, stream_args: {stream_args}, block: {block}")
 
                 await self.__send_data(writer, self.__data_store.xread(streams, ids))
 
