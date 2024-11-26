@@ -423,6 +423,7 @@ class RedisDataStore:
 
         if "_" not in lower_bound:
             lower_bound = f"{lower_bound}-0"
+        print(f"Lower bound: {lower_bound}")
         lower_bound_timestamp_ms, lower_bound_seq = lower_bound.split("-")
         lower_bound_timestamp_ms, lower_bound_seq = int(lower_bound_timestamp_ms), int(lower_bound_seq)
         print(f"Lower bound: {lower_bound_timestamp_ms}, {lower_bound_seq}")
