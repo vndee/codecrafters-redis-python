@@ -413,7 +413,6 @@ class RedisDataStore:
         :param count: Optional[int]
         :return:
         """
-        print(f"XRANGE: {key}, {lower_bound}, {upper_bound}, {count}")
         if key not in self.__data_dict[self.database_idx]:
             return RESPArray(value=[])
 
@@ -460,7 +459,6 @@ class RedisDataStore:
             if timestamp_ms == upper_bound_timestamp_ms and seq > upper_bound_seq:
                 break
 
-            print(f"ID: {id}, Fields: {fields}")
             result.value.append(
                 RESPArray(
                     value=[
@@ -469,7 +467,7 @@ class RedisDataStore:
                     ]
                 )
             )
-        print(f"XRANGE Result: {result}")
+
         return result
 
     def dump_to_rdb(self) -> bytes:
