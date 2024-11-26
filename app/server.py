@@ -439,6 +439,7 @@ class RedisServer:
                 start = data.value[2].value
                 end = data.value[3].value
                 start = "0-0" if start == "-" else start
+                end = f"{int(float('inf'))}-{int(float('inf'))}" if end == "+" else end
 
                 await self.__send_data(writer, self.__data_store.xrange(stream, start, end))
 
