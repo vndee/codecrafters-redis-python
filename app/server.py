@@ -14,7 +14,8 @@ from app.resp import (
     RESPBulkString,
     RESPArray,
     RESPBytesLength,
-    RESPInteger
+    RESPInteger,
+    RESPSimpleError
 )
 from app.data import RedisCommand, RedisDataStore, RedisError
 
@@ -431,7 +432,7 @@ class RedisServer:
                 try:
                     await self.__send_data(writer, RESPBulkString(value=self.__data_store.xadd(stream, id, fields)))
                 except RedisError as e:
-                    await self.__send_data(writer, RESPSimpleString(value=str(e)))
+                    await self.__send_data(writer, RESPSimpleError(value=str(e)))
 
             case _:
                 await self.__send_data(writer, RESPSimpleString(value="ERR unknown command"))

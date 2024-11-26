@@ -164,6 +164,15 @@ class RESPArray(RESPObject):
         return b"".join(parts)
 
 
+@dataclass
+class RESPSimpleError(RESPObject):
+    def __init__(self, **kwargs):
+        super().__init__(type=RESPObjectType.SIMPLE_ERROR, **kwargs)
+
+    def serialize(self) -> bytes:
+        return f"-{self.value}\r\n".encode()
+
+
 class RESPParser:
     def __init__(self, protocol_version: RESPProtocolVersion = RESPProtocolVersion.RESP2):
         self.protocol_version = protocol_version
