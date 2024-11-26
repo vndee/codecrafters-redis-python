@@ -307,7 +307,7 @@ class RedisServer:
             )
 
         try:
-            print(f"Handling command: {data} - is_master_command: {is_master_command}")
+            print(f"Handling command: {data} - is_master_command: {is_master_command} - is_return_resp: {is_return_resp}")
             command = data.value[0].value.lower()  # type: ignore[index]
 
             if self.__is_command_in_queue.get(writer, False) and command not in {
