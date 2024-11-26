@@ -474,6 +474,7 @@ class RedisServer:
                     elif block == 0:
                         while True:
                             data = self.__data_store.xread(streams, ids)
+                            print(f"XREAD data: {data}")
                             if data.type != RESPObjectType.BULK_STRING:
                                 await self.__send_data(writer, data)
                                 break
