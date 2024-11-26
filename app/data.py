@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from typing import Dict, Any, Optional, List, Set, Union
 
 from app.rdb import RDBParser, RDBEncoding
+from app.resp import RESPArray, RESPBulkString
 
 
 class RedisCommand(StrEnum):
@@ -25,6 +26,7 @@ class RedisCommand(StrEnum):
     WAIT = "wait"
     TYPE = "type"
     XADD = "xadd"
+    XRANGE = "xrange"
 
 
 RedisString = str
@@ -401,6 +403,75 @@ class RedisDataStore:
         new_id = f"{current_timestamp_ms}-{current_seq}"
         stream.value.append((new_id, fields))
         return new_id
+
+    def xrange(self, key: str, lower_bound: str, upper_bound: str, count: Optional[int] = None) -> RESPArray:
+        """
+        Return a range of elements in a stream, with IDs matching the specified IDs interval.
+        :param key: str
+        :param lower_bound: str
+        :param upper_bound: str
+        :param count: Optional[int]
+        :return:
+        """
+        if key not in self.__data_dict[self.database_idx]:
+            return []
+
+        stream = self.__data_dict[self.database_idx][key]
+        if stream.data_type != RDBEncoding.STREAM:
+            raise RedisError("ERR: Operation against a key holding the wrong kind of value")
+
+        if "_" not in lower_bound:
+            lower_bound = f"{lower_bound}-0"
+        lower_bound_timestamp_ms, lower_bound_seq = lower_bound.split("-")
+        lower_bound_timestamp_ms, lower_bound_seq = int(lower_bound_timestamp_ms), int(lower_bound_seq)
+
+        if "_" not in upper_bound:
+            upper_bound_timestamp_ms = int(upper_bound)
+            upper_bound_timestamp_ms, upper_bound_seq = int(upper_bound_timestamp_ms), int(float("inf"))
+        else:
+            upper_bound_timestamp_ms, upper_bound_seq = upper_bound.split("-")
+            upper_bound_timestamp_ms, upper_bound_seq = int(upper_bound_timestamp_ms), int(upper_bound_seq)
+
+        if lower_bound_timestamp_ms < 0 or lower_bound_seq < 0:
+            raise RedisError("ERR The ID specified in XRANGE must be greater than 0-0")
+
+        if lower_bound_timestamp_ms > upper_bound_timestamp_ms:
+            raise RedisError("ERR The ID specified in XRANGE is greater than the target stream top item")
+
+        if lower_bound_timestamp_ms == upper_bound_timestamp_ms and lower_bound_seq > upper_bound_seq:
+            raise RedisError("ERR The ID specified in XRANGE is greater than the target stream top item")
+
+        result = RESPArray(value=[])
+        for id, fields in stream.value:
+            timestamp_ms, seq = id.split("-")
+            timestamp_ms, seq = int(timestamp_ms), int(seq)
+
+            if timestamp_ms < lower_bound_timestamp_ms:
+                continue
+
+            if timestamp_ms == lower_bound_timestamp_ms and seq < lower_bound_seq:
+                continue
+
+            if timestamp_ms > upper_bound_timestamp_ms:
+                break
+
+            if timestamp_ms == upper_bound_timestamp_ms and seq > upper_bound_seq:
+                break
+
+            object_fields = []
+            for k, v in fields.items():
+                object_fields.extend([RESPBulkString(value=k), RESPBulkString(value=v)])
+
+            result.value.append(
+                RESPArray(
+                    value=[
+                        RESPBulkString(value=id),
+                        RESPArray(value=object_fields)
+                    ]
+                )
+            )
+
+        return result
 
     def dump_to_rdb(self) -> bytes:
         """

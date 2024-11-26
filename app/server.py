@@ -434,6 +434,13 @@ class RedisServer:
                 except RedisError as e:
                     await self.__send_data(writer, RESPSimpleError(value=str(e)))
 
+            case RedisCommand.XRANGE:
+                stream = data.value[1].value
+                start = data.value[2].value
+                end = data.value[3].value
+                count = data.value[4].value if len(data.value) > 4 else None
+                await self.__send_data(writer, self.__data_store.xrange(stream, start, end, count))
+
             case _:
                 await self.__send_data(writer, RESPSimpleString(value="ERR unknown command"))
 
