@@ -787,8 +787,6 @@ class RedisServer:
             await self.__send_data(writer, RESPSimpleError(value=str(e)))
         except Exception as e:
             print(f"Error handling command: {e}")
-        finally:
-            return None
 
     @staticmethod
     def find_index_in_list(value: Any, lst: list) -> int:
