@@ -445,14 +445,32 @@ class RedisServer:
                 await self.__send_data(writer, self.__data_store.xrange(stream, start, end))
 
             case RedisCommand.XREAD:
-                streams = [stream.value for stream in data.value[1:]]
-                print(f"XREAD streams: {streams}")
+                stream_args = [stream.value.lower() for stream in data.value[1:]]
+                stream_idx = self.find_index_in_list("streams", stream_args)
+                diff_idx = max(self.find_index_in_list("count", stream_args) + 1, self.find_index_in_list("block", stream_args) + 1)
+                if diff_idx < stream_idx:
+                    diff_idx = -1
+
+                stream_args = stream_args[stream_idx + 1:diff_idx]
+
+                print(f"XREAD streams: {stream_args}")
 
             case _:
                 await self.__send_data(writer, RESPSimpleString(value="ERR unknown command"))
 
         if is_master_command:
             self.__repl_ack_offset = self.__repl_ack_offset + data.bytes_length
+
+    @staticmethod
+    def find_index_in_list(value: Any, lst: list) -> int:
+        """
+        Find the index of a value in a list.
+        """
+        try:
+            return lst.index(value)
+        except ValueError:
+            return -1
+
 
     async def __send_data(self, writer: asyncio.StreamWriter, data: RESPObject | bytes) -> bool:
         """
