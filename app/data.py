@@ -335,7 +335,7 @@ class RedisDataStore:
             del self.__data_dict[self.database_idx][key]
             return "none"
 
-        return data_obj.data_type.name
+        return data_obj.data_type.name.lower()
 
     def dump_to_rdb(self) -> bytes:
         """
