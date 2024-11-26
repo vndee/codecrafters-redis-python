@@ -62,11 +62,11 @@ class RedisDataObject:
 
     data_type: RDBEncoding
     value: Union[RedisInt, RedisString, RedisList, RedisSet, RedisZSet, RedisHash, None]
-    expire_at: Optional[int] = None
+    expire_at: Optional[float] = None
 
     @classmethod
     def create_string(
-        cls, value: RedisString, expire_at: Optional[int] = None
+        cls, value: RedisString, expire_at: Optional[float] = None
     ) -> "RedisDataObject":
         return cls(
             data_type=RDBEncoding.STRING,
@@ -76,7 +76,7 @@ class RedisDataObject:
 
     @classmethod
     def create_int(
-        cls, value: RedisInt, expire_at: Optional[int] = None
+        cls, value: RedisInt, expire_at: Optional[float] = None
     ) -> "RedisDataObject":
         return cls(
             data_type=RDBEncoding.STRING,
@@ -86,7 +86,7 @@ class RedisDataObject:
 
     @classmethod
     def create_list(
-        cls, value: RedisList, expire_at: Optional[int] = None
+        cls, value: RedisList, expire_at: Optional[float] = None
     ) -> "RedisDataObject":
         return cls(
             data_type=RDBEncoding.LIST,
@@ -96,7 +96,7 @@ class RedisDataObject:
 
     @classmethod
     def create_set(
-        cls, value: RedisSet, expire_at: Optional[int] = None
+        cls, value: RedisSet, expire_at: Optional[float] = None
     ) -> "RedisDataObject":
         return cls(
             data_type=RDBEncoding.SET,
@@ -106,7 +106,7 @@ class RedisDataObject:
 
     @classmethod
     def create_zset(
-        cls, value: RedisZSet, expire_at: Optional[int] = None
+        cls, value: RedisZSet, expire_at: Optional[float] = None
     ) -> "RedisDataObject":
         return cls(
             data_type=RDBEncoding.ZSET,
@@ -116,7 +116,7 @@ class RedisDataObject:
 
     @classmethod
     def create_hash(
-        cls, value: RedisHash, expire_at: Optional[int] = None
+        cls, value: RedisHash, expire_at: Optional[float] = None
     ) -> "RedisDataObject":
         return cls(
             data_type=RDBEncoding.HASH,
@@ -126,7 +126,7 @@ class RedisDataObject:
 
     @classmethod
     def create_stream(
-        cls, value: RedisList, expire_at: Optional[int] = None
+        cls, value: RedisList, expire_at: Optional[float] = None
     ) -> "RedisDataObject":
         return cls(
             data_type=RDBEncoding.STREAM,
@@ -142,7 +142,7 @@ class RedisDataObject:
             value=None,
         )
 
-    def set_expiry(self, expire_at: Optional[int]):
+    def set_expiry(self, expire_at: Optional[float]):
         self.expire_at = expire_at
 
     def is_expired(self):
