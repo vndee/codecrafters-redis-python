@@ -455,8 +455,8 @@ class RedisServer:
                     diff_idx = diff_idx + 1
 
                 stream_args = stream_args[stream_idx + 1:diff_idx]
-                streams = stream_args[: len(stream_args) >> 2]
-                ids = stream_args[len(stream_args) >> 2 + 1:]
+                streams = stream_args[: len(stream_args) >> 1 + 1]
+                ids = stream_args[len(stream_args) >> 1 + 1:]
                 print(f"XREAD streams: {streams} with ids: {ids}")
 
             case _:
