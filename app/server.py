@@ -753,7 +753,6 @@ class RedisServer:
                         resp = await self.handle_command(  # type: ignore[assignment]
                             reader, writer, cmd, is_return_resp=True
                         )
-                        print(f"EXEC command {cmd} - response: {resp}")
                         results.value.append(resp)  # type: ignore[union-attr]
 
                     await self.__send_data(writer, results)
