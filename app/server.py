@@ -1,4 +1,3 @@
-import sys
 import uuid
 import time
 import asyncio
@@ -19,6 +18,7 @@ from app.resp import (
     RESPSimpleError,
 )
 from app.data import RedisCommand, RedisDataStore, RedisError
+from app.commands import ARITIES, execute, validate, xread_options
 
 
 class RedisReplicationRole(StrEnum):
@@ -106,6 +106,8 @@ class RedisServer:
 
         self.__is_command_in_queue: Dict[asyncio.StreamWriter, bool] = {}
         self.__command_queue: Dict[asyncio.StreamWriter, List[RESPObject]] = {}
+        self.__transaction_dirty: set[asyncio.StreamWriter] = set()
+        self.__stream_changed = asyncio.Event()
 
     async def initialize(self):
         """
@@ -293,6 +295,95 @@ class RedisServer:
             except Exception as e:
                 print(f"Error closing failed replica connection: {e}")
 
+    def __execute_data(self, args, applied_sets=None):
+        try:
+            result = execute(self.__data_store, args, applied_sets=applied_sets)
+            if args[0].lower() == "xadd":
+                self.__stream_changed.set()
+            return result
+        except RedisError as error:
+            return RESPSimpleError(value=str(error))
+
+    async def __forward_sets(self, writer, applied_sets, is_master_command):
+        # Preserve the existing teaching server's SET replication path. Other
+        # data types still have no replication or persistence implementation.
+        if self.__repl_info.role != RedisReplicationRole.MASTER or is_master_command:
+            return
+        for args in applied_sets:
+            data = RESPArray(value=[RESPBulkString(value=arg) for arg in args])
+            self.__repl_info.master_repl_offset += data.serialized_bytes_length
+            self.__client_write_offsets[writer] = self.__repl_info.master_repl_offset
+            await self.__propagate_to_slaves(data)
+
+    async def __local_command(self, reader, writer, data, is_master_command):
+        args = [item.value for item in data.value]
+        command = args[0].lower()
+        queued = self.__is_command_in_queue.get(writer, False)
+        try:
+            validate(args)
+        except RedisError as error:
+            if queued:
+                self.__transaction_dirty.add(writer)
+            return RESPSimpleError(value=str(error))
+        if command == "multi":
+            if queued:
+                return RESPSimpleError(value="ERR MULTI calls can not be nested")
+            self.__is_command_in_queue[writer] = True
+            self.__command_queue[writer] = []
+            self.__transaction_dirty.discard(writer)
+            return RESPSimpleString(value="OK")
+        if command in {"exec", "discard"}:
+            if not queued:
+                return RESPSimpleError(value=f"ERR {command.upper()} without MULTI")
+            self.__is_command_in_queue.pop(writer, None)
+            commands = self.__command_queue.pop(writer, [])
+            dirty = writer in self.__transaction_dirty
+            self.__transaction_dirty.discard(writer)
+            if command == "discard":
+                return RESPSimpleString(value="OK")
+            if dirty:
+                return RESPSimpleError(
+                    value="EXECABORT Transaction discarded because of previous errors."
+                )
+            # There is deliberately no await in this execution loop. Runtime
+            # errors become array elements; later queued commands still execute.
+            applied_sets = []
+            results = [
+                self.__execute_data([part.value for part in cmd.value], applied_sets)
+                for cmd in commands
+            ]
+            await self.__forward_sets(writer, applied_sets, is_master_command)
+            return RESPArray(value=results)
+        if queued:
+            self.__command_queue[writer].append(data)
+            return RESPSimpleString(value="QUEUED")
+        if command == "xread":
+            try:
+                keys, ids, count, block = xread_options(self.__data_store, args)
+                deadline = time.monotonic() + block / 1000 if block else None
+                while True:
+                    self.__stream_changed.clear()
+                    result = self.__data_store.xread(keys, ids, count)
+                    if result.value is not None or block is None or reader.at_eof():
+                        return result
+                    remaining = deadline - time.monotonic() if deadline else None
+                    if remaining is not None and remaining <= 0:
+                        return RESPArray(value=None)
+                    try:
+                        # The bounded wait also notices disconnected clients.
+                        await asyncio.wait_for(
+                            self.__stream_changed.wait(),
+                            min(remaining, 0.1) if remaining is not None else 0.1,
+                        )
+                    except asyncio.TimeoutError:
+                        pass
+            except RedisError as error:
+                return RESPSimpleError(value=str(error))
+        applied_sets = []
+        result = self.__execute_data(args, applied_sets)
+        await self.__forward_sets(writer, applied_sets, is_master_command)
+        return result
+
     async def handle_command(  # type: ignore[return]
         self,
         reader: asyncio.StreamReader,
@@ -301,88 +392,34 @@ class RedisServer:
         is_master_command: bool = False,
         is_return_resp: bool = False,
     ) -> None | RESPObject:
-        if not isinstance(data, RESPArray):
-            await self.__send_data(
-                writer, RESPSimpleString(value="ERR unknown command")
+        if (
+            not isinstance(data, RESPArray)
+            or not data.value
+            or any(
+                not isinstance(item, RESPBulkString) or not isinstance(item.value, str)
+                for item in data.value
             )
+        ):
+            await self.__send_data(
+                writer, RESPSimpleError(value="ERR invalid command frame")
+            )
+            return None
 
         try:
-            print(
-                f"Handling command: {data} - is_master_command: {is_master_command} - is_return_resp: {is_return_resp}"
-            )
-            command = data.value[0].value.lower()  # type: ignore[index]
-
-            if self.__is_command_in_queue.get(writer, False) and command not in {
-                RedisCommand.EXEC,
-                RedisCommand.DISCARD,
-            }:
-                self.__command_queue[writer].append(data)
-                await self.__send_data(writer, RESPSimpleString(value="QUEUED"))
+            command = data.value[0].value.lower()
+            if command in ARITIES or self.__is_command_in_queue.get(writer, False):
+                response = await self.__local_command(
+                    reader, writer, data, is_master_command
+                )
+                if is_master_command:
+                    self.__repl_ack_offset += data.bytes_length
+                elif is_return_resp:
+                    return response
+                else:
+                    await self.__send_data(writer, response)
                 return None
 
             match command:
-                case RedisCommand.PING:
-                    if not is_master_command:
-                        if not is_return_resp:
-                            await self.__send_data(
-                                writer, RESPSimpleString(value="PONG")
-                            )
-                        else:
-                            return RESPSimpleString(value="PONG")
-
-                case RedisCommand.ECHO:
-                    if not is_return_resp:
-                        await self.__send_data(
-                            writer, RESPBulkString(value=data.value[1].value)  # type: ignore[index]
-                        )
-                    else:
-                        return RESPBulkString(value=data.value[1].value)  # type: ignore[index]
-
-                case RedisCommand.SET:
-                    key = data.value[1].value  # type: ignore[index]
-                    value = data.value[2].value  # type: ignore[index]
-
-                    i = 3
-                    args: Dict[str, Any] = {}
-                    while i < len(data.value):  # type: ignore[index, arg-type]
-                        arg_name = data.value[i].value.lower()  # type: ignore[index]
-                        if arg_name in ("ex", "px", "exat", "pxat"):
-                            args[arg_name] = int(data.value[i + 1].value)  # type: ignore[index]
-                            i = i + 2
-                        elif arg_name in ("nx", "xx", "keepttl", "get"):
-                            args[arg_name] = True
-                            i = i + 1
-                        else:
-                            await self.__send_data(
-                                writer, RESPSimpleString(value="ERR syntax error")
-                            )
-
-                    if self.__repl_info.role == RedisReplicationRole.MASTER:
-                        self.__repl_info.master_repl_offset = (
-                            self.__repl_info.master_repl_offset
-                            + data.serialized_bytes_length
-                        )
-                        self.__client_write_offsets[
-                            writer
-                        ] = self.__repl_info.master_repl_offset
-                        await self.__propagate_to_slaves(data)
-
-                    resp = RESPSimpleString(
-                        value=self.__data_store.set(key, value, **args)
-                    )
-                    if not is_master_command:
-                        if not is_return_resp:
-                            await self.__send_data(writer, resp)
-                        else:
-                            return resp
-
-                case RedisCommand.GET:
-                    key = data.value[1].value  # type: ignore[index]
-                    if not is_return_resp:
-                        await self.__send_data(writer, self.__data_store.get(key))
-                    else:
-                        return self.__data_store.get(key)
-
                 case RedisCommand.CONFIG:
                     method = data.value[1].value.lower()  # type: ignore[index]
                     if method == RedisCommand.GET:
@@ -409,19 +446,6 @@ class RedisServer:
                                 await self.__send_data(writer, resp)
                             else:
                                 return resp
-
-                case RedisCommand.KEYS:
-                    pattern = data.value[1].value  # type: ignore[index]
-                    resp = RESPArray(  # type: ignore[assignment]
-                        value=[
-                            RESPBulkString(value=key)
-                            for key in self.__data_store.keys(pattern)
-                        ]
-                    )
-                    if not is_return_resp:
-                        await self.__send_data(writer, resp)
-                    else:
-                        return resp
 
                 case RedisCommand.INFO:
                     resp = self.__repl_info.serialize()  # type: ignore[assignment]
@@ -620,171 +644,9 @@ class RedisServer:
 
                         await asyncio.sleep(0.1)
 
-                case RedisCommand.TYPE:
-                    key = data.value[1].value  # type: ignore[index]
-                    if not is_return_resp:
-                        await self.__send_data(
-                            writer, RESPSimpleString(value=self.__data_store.type(key))
-                        )
-                    else:
-                        return RESPSimpleString(value=self.__data_store.type(key))
-
-                case RedisCommand.XADD:
-                    stream = data.value[1].value  # type: ignore[index]
-                    id = data.value[2].value  # type: ignore[index]
-                    fields = data.value[3:]  # type: ignore[index]
-
-                    if not is_return_resp:
-                        await self.__send_data(
-                            writer, self.__data_store.xadd(stream, id, fields)
-                        )
-                        # await self.__propagate_to_slaves(data)
-                    else:
-                        resp = self.__data_store.xadd(stream, id, fields)  # type: ignore[assignment]
-                        # await self.__propagate_to_slaves(data)
-                        return resp
-
-                case RedisCommand.XRANGE:
-                    stream = data.value[1].value  # type: ignore[index]
-                    start = data.value[2].value  # type: ignore[index]
-                    end = data.value[3].value  # type: ignore[index]
-                    start = "0-0" if start == "-" else start
-                    end = f"{sys.maxsize}-{sys.maxsize}" if end == "+" else end
-
-                    if not is_return_resp:
-                        await self.__send_data(
-                            writer, self.__data_store.xrange(stream, start, end)
-                        )
-                    else:
-                        return self.__data_store.xrange(stream, start, end)
-
-                case RedisCommand.XREAD:
-                    stream_args = [stream.value.lower() for stream in data.value[1:]]  # type: ignore[index]
-
-                    block = None
-                    block_idx = self.find_index_in_list("block", stream_args)
-                    if block_idx != -1:
-                        block = int(stream_args[block_idx + 1])
-                        stream_args = (
-                            stream_args[:block_idx] + stream_args[block_idx + 2 :]
-                        )
-
-                    stream_idx = self.find_index_in_list("streams", stream_args)
-                    diff_idx = max(
-                        self.find_index_in_list("count", stream_args),
-                        self.find_index_in_list("block", stream_args),
-                    )
-                    if diff_idx < stream_idx:
-                        diff_idx = len(stream_args)
-                    else:
-                        diff_idx = diff_idx + 1
-
-                    stream_args = stream_args[stream_idx + 1 : diff_idx]
-
-                    pivot = len(stream_args) >> 1
-                    streams = stream_args[:pivot]
-                    ids = stream_args[pivot:]
-                    for i in range(len(ids)):
-                        if ids[i] == "$":
-                            ids[i] = self.__data_store.get_current_max_stream_id(
-                                streams[i]
-                            )
-
-                    print(
-                        f"XREAD pivot: {pivot}, streams: {streams}, ids: {ids}, stream_args: {stream_args}, block: {block}"
-                    )
-
-                    if block is not None:
-                        if block > 0:
-                            await asyncio.sleep(block / 1000)
-                            if not is_return_resp:
-                                await self.__send_data(
-                                    writer, self.__data_store.xread(streams, ids)
-                                )
-                                return None
-                            else:
-                                return self.__data_store.xread(streams, ids)
-                        elif block == 0:
-                            while True:
-                                data = self.__data_store.xread(streams, ids)
-                                if data.type != RESPObjectType.BULK_STRING:
-                                    if not is_return_resp:
-                                        await self.__send_data(writer, data)
-                                        break
-                                    else:
-                                        return data
-
-                                await asyncio.sleep(0.1)
-                    else:
-                        if not is_return_resp:
-                            await self.__send_data(
-                                writer, self.__data_store.xread(streams, ids)
-                            )
-                        else:
-                            return self.__data_store.xread(streams, ids)
-
-                case RedisCommand.INCR:
-                    key = data.value[1].value  # type: ignore[index]
-                    if not is_return_resp:
-                        await self.__send_data(writer, self.__data_store.incr(key))
-                        # await self.__propagate_to_slaves(data)
-                    else:
-                        resp = self.__data_store.incr(key)  # type: ignore[assignment]
-                        # await self.__propagate_to_slaves(data)
-                        return resp
-
-                case RedisCommand.MULTI:
-                    self.__is_command_in_queue[writer] = True
-                    self.__command_queue[writer] = []
-
-                    if not is_return_resp:
-                        await self.__send_data(writer, RESPSimpleString(value="OK"))
-                    else:
-                        return RESPSimpleString(value="OK")
-
-                case RedisCommand.EXEC:
-                    if (
-                        writer not in self.__is_command_in_queue
-                        or not self.__is_command_in_queue[writer]
-                    ):
-                        await self.__send_data(
-                            writer, RESPSimpleError(value="ERR EXEC without MULTI")
-                        )
-                        return None
-
-                    self.__is_command_in_queue[writer] = False
-                    commands = self.__command_queue.pop(writer, [])
-
-                    results = RESPArray(value=[])
-                    for cmd in commands:
-                        resp = await self.handle_command(  # type: ignore[assignment]
-                            reader, writer, cmd, is_return_resp=True
-                        )
-                        results.value.append(resp)  # type: ignore[union-attr]
-
-                    await self.__send_data(writer, results)
-
-                case RedisCommand.DISCARD:
-                    if (
-                        writer not in self.__is_command_in_queue
-                        or not self.__is_command_in_queue[writer]
-                    ):
-                        await self.__send_data(
-                            writer, RESPSimpleError(value="ERR DISCARD without MULTI")
-                        )
-                        return None
-
-                    self.__is_command_in_queue[writer] = False
-                    self.__command_queue.pop(writer, None)
-
-                    if not is_return_resp:
-                        await self.__send_data(writer, RESPSimpleString(value="OK"))
-                    else:
-                        return RESPSimpleString(value="OK")
-
                 case _:
                     await self.__send_data(
-                        writer, RESPSimpleString(value="ERR unknown command")
+                        writer, RESPSimpleError(value="ERR unknown command")
                     )
 
             if is_master_command:
@@ -846,13 +708,14 @@ class RedisServer:
         addr = writer.get_extra_info("peername")
         print(f"New connection from {addr}")
 
+        parser = RESPParser()
         try:
             while True:
                 data = await reader.read(1024 * 1024)
                 if not data:
                     break
 
-                commands = self.resp_parser.parse(data)
+                commands = parser.feed(data)
                 print(f"Received {data!r} from {addr}")
 
                 for cmd in commands:
@@ -872,6 +735,9 @@ class RedisServer:
         finally:
             print(f"Closing connection from {addr}")
             self.__client_write_offsets.pop(writer, None)
+            self.__is_command_in_queue.pop(writer, None)
+            self.__command_queue.pop(writer, None)
+            self.__transaction_dirty.discard(writer)
             if writer in self.__replica_acks:
                 print(
                     f"Cleaning up replica connection from {writer.get_extra_info('peername')}"

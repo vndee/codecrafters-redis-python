@@ -1,60 +1,83 @@
-[![progress-banner](https://backend.codecrafters.io/progress/redis/1ecd7487-197a-43b2-b201-ec1d3f847cc9)](https://app.codecrafters.io/users/codecrafters-bot?r=2qF)
+# Build your own Redis in Python
 
-This is a starting point for Python solutions to the
-["Build Your Own Redis" Challenge](https://codecrafters.io/challenges/redis).
+A teaching server for the [CodeCrafters Redis challenge](https://codecrafters.io/challenges/redis)
+and the [Build your own Redis series](https://blog.duy.dev/build-your-own-redis-1-5-redis-serialization-protocol-and-concurrency-model/).
+Requires Python 3.11 or newer. This is a learning implementation, not a production Redis replacement.
 
-In this challenge, you'll build a toy Redis clone that's capable of handling
-basic commands like `PING`, `SET` and `GET`. Along the way we'll learn about
-event loops, the Redis protocol and more.
-
-**Note**: If you're viewing this repo on GitHub, head over to
-[codecrafters.io](https://codecrafters.io) to try the challenge.
-
-# Passing the first stage
-
-The entry point for your Redis implementation is in `app/main.py`. Study and
-uncomment the relevant code, and push your changes to pass the first stage:
+## Run and test
 
 ```sh
-git commit -am "pass 1st stage" # any msg
-git push origin master
+python -m venv .venv
+. .venv/bin/activate
+python -m pip install pytest
+python -m app.server --host 127.0.0.1 --port 6379
 ```
 
-That's all!
+From a second terminal:
 
-# Stage 2 & beyond
-
-Note: This section is for stages 2 and beyond.
-
-1. Ensure you have `python (3.x)` installed locally
-1. Run `./your_program.sh` to run your Redis server, which is implemented in
-   `app/main.py`.
-1. Commit your changes and run `git push origin master` to submit your solution
-   to CodeCrafters. Test output will be streamed to your terminal.
-
-# Troubleshooting
-
-## module `socket` has no attribute `create_server`
-
-When running your server locally, you might see an error like this:
-
-```
-Traceback (most recent call last):
-  File "/.../python3.7/runpy.py", line 193, in _run_module_as_main
-    "__main__", mod_spec)
-  File "/.../python3.7/runpy.py", line 85, in _run_code
-    exec(code, run_globals)
-  File "/app/app/main.py", line 11, in <module>
-    main()
-  File "/app/app/main.py", line 6, in main
-    s = socket.create_server(("localhost", 6379), reuse_port=True)
-AttributeError: module 'socket' has no attribute 'create_server'
+```sh
+redis-cli RPUSH jobs first second
+redis-cli LRANGE jobs 0 -1
+redis-cli SADD languages python redis python
+redis-cli XADD Events 1-0 state ready
+redis-cli XREAD STREAMS Events 0
 ```
 
-This is because `socket.create_server` was introduced in Python 3.8, and you
-might be running an older version.
+Run the tests from the repository root:
 
-You can fix this by installing Python 3.8 locally and using that.
+```sh
+python -m pytest -q
+```
 
-If you'd like to use a different version of Python, change the `language_pack`
-value in `codecrafters.yml`.
+The regression suite includes real loopback TCP tests; the environment must permit
+binding to `127.0.0.1`. No external Redis server or network service is required.
+
+## Implemented command subset
+
+| Area | Commands / behavior |
+| --- | --- |
+| Strings | PING, ECHO, SET, GET, INCR, TYPE, KEYS |
+| SET options | EX, PX, EXAT, PXAT, NX, XX, GET, KEEPTTL |
+| Lists | LPUSH, RPUSH, LPOP, RPOP, LLEN, LRANGE (inclusive stop, negative indexes) |
+| Sets | SADD, SREM, SISMEMBER, SCARD, SMEMBERS |
+| Streams | XADD, XRANGE with optional COUNT, XREAD with COUNT and BLOCK |
+| Transactions | MULTI, EXEC, DISCARD for the data commands above |
+| Protocol | RESP2 UTF-8 strings, pipeline parsing, connection-local partial-frame buffering |
+
+Lists use `collections.deque`; sets use Python `set`; streams use an ordered
+Python list of entries. These are deliberately simple representations, not the
+internal encodings used by Redis itself. Empty lists and sets remove their key.
+GET on a collection returns WRONGTYPE. Integer increment enforces signed 64-bit
+bounds, while SET preserves strings such as `0012` exactly.
+
+XREAD preserves case-sensitive key names, treats `0` as the beginning, resolves
+`$` once per request, wakes when XADD makes entries available, and uses monotonic
+time for its timeout. Within EXEC, XREAD never blocks. COUNT must be positive in
+this subset. Range exclusivity syntax and XADD trimming options are not included.
+
+Transactions have connection-local queues. Unknown commands and invalid arity
+mark the queue invalid; EXEC then returns EXECABORT without running the queue.
+Runtime data errors occupy their reply slot and do not roll back successful
+commands. Nested MULTI reports an error without discarding the existing queue.
+The in-memory EXEC loop does not await, so another local client cannot observe
+intermediate mutations. Client disconnect cleans up queue state.
+
+## Explicit limitations
+
+- Administrative/replication commands (CONFIG, INFO, REPLCONF, PSYNC, WAIT) retain
+  the earlier challenge implementation and are outside the transaction subset.
+- Replication is incomplete: only SET has a propagation path, full sync still
+  emits an empty example RDB, and replica snapshot loading/partial resync remain
+  unfinished. Transactions are atomic only on the local server, not across replicas.
+- RDB loading supports the earlier parser subset. There is no real snapshot writer,
+  AOF logging, durability guarantee, automatic failover, or Redis Cluster support.
+- WATCH, consumer groups, blocking list pops, hashes, sorted sets, and optional
+  LPOP/RPOP count arguments are not implemented.
+- RESP bulk strings are UTF-8 text, not arbitrary binary payloads. The client input
+  buffer has a teaching-server limit of 16 MiB. RESP3 and inline command syntax are
+  outside the supported client protocol.
+- Stream scans and LRANGE materialization are linear. There are no eviction,
+  authentication, resource isolation, or production observability facilities.
+
+The tests verify this declared subset; they do not establish full Redis compatibility,
+crash safety, or performance claims.

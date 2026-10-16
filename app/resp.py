@@ -135,7 +135,8 @@ class RESPBulkString(RESPObject):
     def serialize(self) -> bytes:
         if self.value is None:
             return b"$-1\r\n"
-        return f"${len(self.value)}\r\n{self.value}\r\n".encode()
+        value = self.value.encode()
+        return f"${len(value)}\r\n".encode() + value + b"\r\n"
 
 
 @dataclass
@@ -155,6 +156,8 @@ class RESPArray(RESPObject):
         super().__init__(type=RESPObjectType.ARRAY, **kwargs)
 
     def serialize(self) -> bytes:
+        if self.value is None:
+            return b"*-1\r\n"
         if not self.value:
             return b"*0\r\n"
         parts = [f"*{len(self.value)}\r\n".encode()]
@@ -186,6 +189,57 @@ class RESPParser:
         self, protocol_version: RESPProtocolVersion = RESPProtocolVersion.RESP2
     ):
         self.protocol_version = protocol_version
+        self._buffer = b""
+
+    def feed(self, data: bytes) -> List[RESPObject]:
+        """Decode ordinary client frames, retaining incomplete bytes per connection.
+
+        Replication RDB transfers use a different framing convention and continue
+        to use the separate parse() path.
+        """
+        self._buffer += data
+        if len(self._buffer) > 16 * 1024 * 1024:
+            raise ValueError("client input exceeds the 16 MiB teaching-server limit")
+        result = []
+        while self._buffer:
+            size = self._frame_size(self._buffer)
+            if not size:
+                break
+            obj = self._parse_single(self._buffer[:size])
+            if obj is None:
+                raise ValueError("invalid RESP frame")
+            result.append(obj)
+            self._buffer = self._buffer[size:]
+        return result
+
+    def _frame_size(self, data: bytes) -> int:
+        line_end = data.find(b"\r\n")
+        if line_end < 0:
+            return 0
+        prefix = data[:1]
+        end = line_end + 2
+        if prefix in (b"+", b"-", b":"):
+            return end
+        if prefix not in (b"$", b"*"):
+            raise ValueError("unsupported RESP type")
+        length = int(data[1:line_end])
+        if length < -1:
+            raise ValueError("invalid RESP length")
+        if length == -1:
+            return end
+        if prefix == b"$":
+            end += length + 2
+            if len(data) < end:
+                return 0
+            if data[end - 2 : end] != b"\r\n":
+                raise ValueError("invalid bulk string terminator")
+            return end
+        for _ in range(length):
+            size = self._frame_size(data[end:])
+            if not size:
+                return 0
+            end += size
+        return end
 
     def parse(self, data: bytes) -> List[RESPObject]:
         """
@@ -309,14 +363,18 @@ class RESPParser:
                 length = int(lines[0][1:])
                 if length == -1:
                     return RESPBulkString(value=None)
+                start = data.find(b"\r\n") + 2
+                payload = data[start : start + length]
                 return (
-                    RESPBulkBytes(value=lines[1], bytes_length=len(data))
+                    RESPBulkBytes(value=payload, bytes_length=len(data))
                     if is_not_end_with_crlf
-                    else RESPBulkString(value=lines[1].decode(), bytes_length=len(data))
+                    else RESPBulkString(value=payload.decode(), bytes_length=len(data))
                 )
 
             elif resp_type == RESPObjectType.ARRAY:
                 length = int(lines[0][1:])
+                if length == -1:
+                    return RESPArray(value=None, bytes_length=len(data))
                 if length == 0:
                     return RESPArray(value=[], bytes_length=len(data))
 
